@@ -85,7 +85,7 @@ type Config struct {
 
 	ConnectionPoolFunc func([]*Connection, Selector) ConnectionPool
 
-	CertificateFingerprint string
+	CertificateFingerprints []string
 }
 
 // Client represents the HTTP client.
@@ -132,29 +132,9 @@ func New(cfg Config) (*Client, error) {
 		cfg.Transport = http.DefaultTransport
 	}
 
-	if transport, ok := cfg.Transport.(*http.Transport); ok {
-		if cfg.CertificateFingerprint != "" {
-			transport.DialTLS = func(network, addr string) (net.Conn, error) {
-				fingerprint, _ := hex.DecodeString(cfg.CertificateFingerprint)
-
-				c, err := tls.Dial(network, addr, &tls.Config{InsecureSkipVerify: true})
-				if err != nil {
-					return nil, err
-				}
-
-				// Retrieve the connection state from the remote server.
-				cState := c.ConnectionState()
-				for _, cert := range cState.PeerCertificates {
-					// Compute digest for each certificate.
-					digest := sha256.Sum256(cert.Raw)
-
-					// Provided fingerprint should match at least one certificate from remote before we continue.
-					if bytes.Compare(digest[0:], fingerprint) == 0 {
-						return c, nil
-					}
-				}
-				return nil, fmt.Errorf("fingerprint mismatch, provided: %s", cfg.CertificateFingerprint)
-			}
+	if len(cfg.CertificateFingerprints) > 0 {
+		if transport, ok := cfg.Transport.(*http.Transport); ok {
+			transport.DialTLS = WrapDialTLS(transport.DialTLS, cfg.CertificateFingerprints)
 		}
 	}
 
@@ -521,4 +501,39 @@ func (c *Client) logRoundTrip(
 		}
 	}
 	c.logger.LogRoundTrip(req, &dupRes, err, start, dur) // errcheck exclude
+}
+
+func WrapDialTLS(dialTls func(network, addr string) (net.Conn, error), certificateFingerprints []string) func(network, addr string) (net.Conn, error) {
+	return func(network, addr string) (net.Conn, error) {
+		c, err := tls.Dial(network, addr, &tls.Config{InsecureSkipVerify: false})
+
+		if _, ok := err.(x509.UnknownAuthorityError); ok {
+			c, err = tls.Dial(network, addr, &tls.Config{InsecureSkipVerify: true})
+			if err != nil {
+				return nil, err
+			}
+			// Retrieve the connection state from the remote server.
+			cState := c.ConnectionState()
+			for _, cert := range cState.PeerCertificates {
+				// Compute digest for each certificate.
+				digest := sha256.Sum256(cert.Raw)
+
+				// Provided fingerprint should match at least one certificate from remote before we continue.
+				for _, certificateFingerPrint := range certificateFingerprints {
+					fingerprint, _ := hex.DecodeString(certificateFingerPrint)
+					if bytes.Compare(digest[0:], fingerprint) == 0 {
+						if dialTls != nil {
+							return dialTls(network, addr)
+						}
+						return c, nil
+					}
+				}
+			}
+		}
+
+		if err != nil {
+			return nil, err
+		}
+		return c, nil
+	}
 }
