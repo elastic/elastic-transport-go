@@ -339,6 +339,8 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		}
 
 		if err != nil {
+			shouldRetry = true
+
 			// Record metrics, when enabled
 			if c.metrics != nil {
 				c.metrics.Lock()
@@ -351,15 +353,10 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			c.pool.OnFailure(conn)
 			c.Unlock()
 
-			// Retry on EOF errors
-			if err == io.EOF {
-				shouldRetry = true
-			}
-
 			// Retry on network errors, but not on timeout errors, unless configured
 			if err, ok := err.(net.Error); ok {
-				if (!err.Timeout() || c.enableRetryOnTimeout) && !c.disableRetry {
-					shouldRetry = true
+				if (err.Timeout() && !c.enableRetryOnTimeout) || c.disableRetry {
+					shouldRetry = false
 				}
 			}
 		} else {
