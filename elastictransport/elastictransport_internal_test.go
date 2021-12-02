@@ -24,11 +24,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"strings"
@@ -989,4 +991,48 @@ func TestRequestCompression(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFingerprint(t *testing.T) {
+	body := []byte(`{"body": true"}"`)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Elastic-Product", "Elasticsearch")
+		w.Write(body)
+	}))
+	defer server.Close()
+
+	u, _ := url.Parse(server.URL)
+
+	config := Config{
+		URLs:    []*url.URL{u},
+		DisableRetry: true,
+	}
+
+	t.Run("Self signed test certificate only", func(t *testing.T) {
+		// Without certificate and authority, client should fail on TLS
+		transport, _ := New(config)
+		req, _ := http.NewRequest(http.MethodGet, server.URL, nil)
+
+		_, err := transport.Perform(req)
+		if _, ok := err.(x509.UnknownAuthorityError); !ok {
+			t.Fatalf("Uknown error, expected UnknownAuthorityError, got: %s", err)
+		}
+	})
+
+	t.Run("Self signed test certificate with fingerprint", func(t *testing.T) {
+		// We add the fingerprint corresponding ton testcert.LocalhostCert
+		config.CertificateFingerprints = append(config.CertificateFingerprints, "448F628A8A65AA18560E53A80C53ACB38C51B427DF0334082349141147DC9BF6")
+		transport, _ := New(config)
+		req, _ := http.NewRequest(http.MethodGet, server.URL, nil)
+		res, err := transport.Perform(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+
+		data, _ := ioutil.ReadAll(res.Body)
+		if bytes.Compare(data, body) != 0 {
+			t.Fatalf("unexpected payload returned: expected: %s, got: %s", body, data)
+		}
+	})
 }
