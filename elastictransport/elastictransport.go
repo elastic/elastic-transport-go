@@ -66,11 +66,11 @@ type Config struct {
 	Header http.Header
 	CACert []byte
 
-	RetryOnStatus        []int
-	DisableRetry         bool
-	EnableRetryOnTimeout bool
-	MaxRetries           int
-	RetryBackoff         func(attempt int) time.Duration
+	RetryOnStatus       []int
+	DisableRetry        bool
+	DisableRetryOnError func(http.Request, error) bool
+	MaxRetries          int
+	RetryBackoff        func(attempt int) time.Duration
 
 	CompressRequestBody bool
 
@@ -108,6 +108,7 @@ type Client struct {
 	enableRetryOnTimeout bool
 
 	maxRetries            int
+	disableRetryOnError   func(http.Request, error) bool
 	retryBackoff          func(attempt int) time.Duration
 	discoverNodesInterval time.Duration
 	discoverNodesTimer    *time.Timer
@@ -199,8 +200,8 @@ func New(cfg Config) (*Client, error) {
 
 		retryOnStatus:         cfg.RetryOnStatus,
 		disableRetry:          cfg.DisableRetry,
-		enableRetryOnTimeout:  cfg.EnableRetryOnTimeout,
 		maxRetries:            cfg.MaxRetries,
+		disableRetryOnError:   cfg.DisableRetryOnError,
 		retryBackoff:          cfg.RetryBackoff,
 		discoverNodesInterval: cfg.DiscoverNodesInterval,
 
@@ -339,7 +340,9 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		}
 
 		if err != nil {
-			shouldRetry = true
+			if !c.disableRetry {
+				shouldRetry = true
+			}
 
 			// Record metrics, when enabled
 			if c.metrics != nil {
@@ -353,11 +356,9 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			c.pool.OnFailure(conn)
 			c.Unlock()
 
-			// Retry on network errors, but not on timeout errors, unless configured
-			if err, ok := err.(net.Error); ok {
-				if (err.Timeout() && !c.enableRetryOnTimeout) || c.disableRetry {
-					shouldRetry = false
-				}
+			// Prevent retry upon decision by the user
+			if c.disableRetryOnError != nil && !c.disableRetryOnError(*req, err) {
+				shouldRetry = false
 			}
 		} else {
 			// Report the connection as succesfull
