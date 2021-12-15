@@ -884,7 +884,7 @@ func TestTransportPerformRetries(t *testing.T) {
 					return nil, nil
 				},
 			},
-			DisableRetryOnError: func(request http.Request, err error) bool {
+			RetryOnError: func(request *http.Request, err error) bool {
 				return !errors.Is(err, io.EOF)
 			},
 		})

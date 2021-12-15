@@ -69,19 +69,19 @@ type Config struct {
 	// DisableRetry disables retrying requests.
 	//
 	// If DisableRetry is true, then RetryOnStatus, RetryOnError, MaxRetries, and RetryBackoff will be ignored.
-	DisableRetry        bool
+	DisableRetry bool
 
 	// RetryOnStatus holds an optional list of HTTP response status codes that should trigger a retry.
 	//
 	// If RetryOnStatus is nil, then the defaults will be used:
 	// 502 (Bad Gateway), 503 (Service Unavailable), 504 (Gateway Timeout).
-	RetryOnStatus       []int
-	
+	RetryOnStatus []int
+
 	// RetryOnError holds an optional function that will be called when a request fails due to an
 	// HTTP transport error, to indicate whether the request should be retried, e.g. timeouts.
 	RetryOnError func(*http.Request, error) bool
-	MaxRetries          int
-	RetryBackoff        func(attempt int) time.Duration
+	MaxRetries   int
+	RetryBackoff func(attempt int) time.Duration
 
 	CompressRequestBody bool
 
@@ -119,7 +119,7 @@ type Client struct {
 	enableRetryOnTimeout bool
 
 	maxRetries            int
-	disableRetryOnError   func(http.Request, error) bool
+	retryOnError          func(*http.Request, error) bool
 	retryBackoff          func(attempt int) time.Duration
 	discoverNodesInterval time.Duration
 	discoverNodesTimer    *time.Timer
@@ -212,7 +212,7 @@ func New(cfg Config) (*Client, error) {
 		retryOnStatus:         cfg.RetryOnStatus,
 		disableRetry:          cfg.DisableRetry,
 		maxRetries:            cfg.MaxRetries,
-		disableRetryOnError:   cfg.DisableRetryOnError,
+		retryOnError:          cfg.RetryOnError,
 		retryBackoff:          cfg.RetryBackoff,
 		discoverNodesInterval: cfg.DiscoverNodesInterval,
 
@@ -368,7 +368,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			c.Unlock()
 
 			// Prevent retry upon decision by the user
-			if c.disableRetryOnError != nil && !c.disableRetryOnError(*req, err) {
+			if c.retryOnError != nil && !c.retryOnError(req, err) {
 				shouldRetry = false
 			}
 		} else {
