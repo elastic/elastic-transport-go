@@ -66,9 +66,20 @@ type Config struct {
 	Header http.Header
 	CACert []byte
 
-	RetryOnStatus       []int
+	// DisableRetry disables retrying requests.
+	//
+	// If DisableRetry is true, then RetryOnStatus, RetryOnError, MaxRetries, and RetryBackoff will be ignored.
 	DisableRetry        bool
-	DisableRetryOnError func(http.Request, error) bool
+
+	// RetryOnStatus holds an optional list of HTTP response status codes that should trigger a retry.
+	//
+	// If RetryOnStatus is nil, then the defaults will be used:
+	// 502 (Bad Gateway), 503 (Service Unavailable), 504 (Gateway Timeout).
+	RetryOnStatus       []int
+	
+	// RetryOnError holds an optional function that will be called when a request fails due to an
+	// HTTP transport error, to indicate whether the request should be retried, e.g. timeouts.
+	RetryOnError func(*http.Request, error) bool
 	MaxRetries          int
 	RetryBackoff        func(attempt int) time.Duration
 
