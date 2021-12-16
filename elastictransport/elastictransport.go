@@ -351,10 +351,6 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		}
 
 		if err != nil {
-			if !c.disableRetry {
-				shouldRetry = true
-			}
-
 			// Record metrics, when enabled
 			if c.metrics != nil {
 				c.metrics.Lock()
