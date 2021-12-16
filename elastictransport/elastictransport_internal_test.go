@@ -24,6 +24,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -105,10 +107,6 @@ func TestTransportConfig(t *testing.T) {
 			t.Errorf("Unexpected disableRetry: %v", tp.disableRetry)
 		}
 
-		if tp.enableRetryOnTimeout {
-			t.Errorf("Unexpected enableRetryOnTimeout: %v", tp.enableRetryOnTimeout)
-		}
-
 		if tp.maxRetries != 3 {
 			t.Errorf("Unexpected maxRetries: %v", tp.maxRetries)
 		}
@@ -120,11 +118,10 @@ func TestTransportConfig(t *testing.T) {
 
 	t.Run("Custom", func(t *testing.T) {
 		tp, _ := New(Config{
-			RetryOnStatus:        []int{404, 408},
-			DisableRetry:         true,
-			EnableRetryOnTimeout: true,
-			MaxRetries:           5,
-			CompressRequestBody:  true,
+			RetryOnStatus:       []int{404, 408},
+			DisableRetry:        true,
+			MaxRetries:          5,
+			CompressRequestBody: true,
 		})
 
 		if !reflect.DeepEqual(tp.retryOnStatus, []int{404, 408}) {
@@ -133,10 +130,6 @@ func TestTransportConfig(t *testing.T) {
 
 		if !tp.disableRetry {
 			t.Errorf("Unexpected disableRetry: %v", tp.disableRetry)
-		}
-
-		if !tp.enableRetryOnTimeout {
-			t.Errorf("Unexpected enableRetryOnTimeout: %v", tp.enableRetryOnTimeout)
 		}
 
 		if tp.maxRetries != 5 {
@@ -690,7 +683,7 @@ func TestTransportPerformRetries(t *testing.T) {
 		}
 	})
 
-	t.Run("Don't retry request on regular error", func(t *testing.T) {
+	t.Run("Retry request on regular error", func(t *testing.T) {
 		var i int
 
 		u, _ := url.Parse("http://foo.bar")
@@ -717,8 +710,8 @@ func TestTransportPerformRetries(t *testing.T) {
 			t.Errorf("Unexpected response: %+v", res)
 		}
 
-		if i != 1 {
-			t.Errorf("Unexpected number of requests, want=%d, got=%d", 1, i)
+		if i != 4 {
+			t.Errorf("Unexpected number of requests, want=%d, got=%d", 4, i)
 		}
 	})
 
@@ -807,10 +800,9 @@ func TestTransportPerformRetries(t *testing.T) {
 		var i int
 		u, _ := url.Parse("http://foo.bar")
 		tp, _ := New(Config{
-			EnableRetryOnTimeout: true,
-			MaxRetries:           100,
-			RetryBackoff:         func(i int) time.Duration { return time.Hour },
-			URLs:                 []*url.URL{u},
+			MaxRetries:   100,
+			RetryBackoff: func(i int) time.Duration { return time.Hour },
+			URLs:         []*url.URL{u},
 			Transport: &mockTransp{
 				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
 					i++
@@ -831,6 +823,88 @@ func TestTransportPerformRetries(t *testing.T) {
 		}
 		if i != 1 {
 			t.Fatalf("unexpected number of requests: expected 1, got got %d", i)
+		}
+	})
+
+	t.Run("Retry request on next node on TLS failure", func(t *testing.T) {
+		var i int
+
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u, u, u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					i++
+					if i == 3 {
+						return nil, x509.CertificateInvalidError{nil, x509.Expired, ""}
+					}
+
+					fmt.Printf("Request #%d", i)
+					fmt.Print(": ERR\n")
+					return nil, fmt.Errorf("Mock regular error (%d)", i)
+				},
+			}})
+
+		req, _ := http.NewRequest("GET", "/abc", nil)
+
+		res, err := tp.Perform(req)
+
+		if err == nil {
+			t.Fatalf("Expected error, got: %v", err)
+		}
+
+		if res != nil {
+			t.Errorf("Unexpected response: %+v", res)
+		}
+
+		if i != 4 {
+			t.Errorf("Unexpected number of requests, want=%d, got=%d", 4, i)
+		}
+	})
+	t.Run("Do not retry on EOF", func(t *testing.T) {
+		var i int
+
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u, u, u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					switch i {
+					case 0:
+						i++
+						return nil, io.EOF
+					case 1:
+						i++
+						return nil, errors.New("simple custom error")
+					case 2:
+						i++
+						return &http.Response{Status: "200 OK", StatusCode: http.StatusOK, Body: ioutil.NopCloser(strings.NewReader("{}"))}, nil
+					}
+
+					return nil, nil
+				},
+			},
+			RetryOnError: func(request *http.Request, err error) bool {
+				return !errors.Is(err, io.EOF)
+			},
+		})
+
+		req, _ := http.NewRequest("GET", "/", nil)
+		res, err := tp.Perform(req)
+		if err == nil {
+			t.Fatalf("Expected error, %s", err)
+		}
+
+		res, err = tp.Perform(req)
+		if err != nil {
+			t.Fatalf("Expected error, %s", err)
+		}
+
+		if i != 3 {
+			t.Fatalf("Unexpected req count, wanted 3, got %d", i)
+		}
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("Unexpected status code, wanted 200, got %d", res.StatusCode)
 		}
 	})
 }

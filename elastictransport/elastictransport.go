@@ -66,11 +66,22 @@ type Config struct {
 	Header http.Header
 	CACert []byte
 
-	RetryOnStatus        []int
-	DisableRetry         bool
-	EnableRetryOnTimeout bool
-	MaxRetries           int
-	RetryBackoff         func(attempt int) time.Duration
+	// DisableRetry disables retrying requests.
+	//
+	// If DisableRetry is true, then RetryOnStatus, RetryOnError, MaxRetries, and RetryBackoff will be ignored.
+	DisableRetry bool
+
+	// RetryOnStatus holds an optional list of HTTP response status codes that should trigger a retry.
+	//
+	// If RetryOnStatus is nil, then the defaults will be used:
+	// 502 (Bad Gateway), 503 (Service Unavailable), 504 (Gateway Timeout).
+	RetryOnStatus []int
+
+	// RetryOnError holds an optional function that will be called when a request fails due to an
+	// HTTP transport error, to indicate whether the request should be retried, e.g. timeouts.
+	RetryOnError func(*http.Request, error) bool
+	MaxRetries   int
+	RetryBackoff func(attempt int) time.Duration
 
 	CompressRequestBody bool
 
@@ -108,6 +119,7 @@ type Client struct {
 	enableRetryOnTimeout bool
 
 	maxRetries            int
+	retryOnError          func(*http.Request, error) bool
 	retryBackoff          func(attempt int) time.Duration
 	discoverNodesInterval time.Duration
 	discoverNodesTimer    *time.Timer
@@ -199,8 +211,8 @@ func New(cfg Config) (*Client, error) {
 
 		retryOnStatus:         cfg.RetryOnStatus,
 		disableRetry:          cfg.DisableRetry,
-		enableRetryOnTimeout:  cfg.EnableRetryOnTimeout,
 		maxRetries:            cfg.MaxRetries,
+		retryOnError:          cfg.RetryOnError,
 		retryBackoff:          cfg.RetryBackoff,
 		discoverNodesInterval: cfg.DiscoverNodesInterval,
 
@@ -351,16 +363,9 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			c.pool.OnFailure(conn)
 			c.Unlock()
 
-			// Retry on EOF errors
-			if err == io.EOF {
+			// Retry upon decision by the user
+			if !c.disableRetry && (c.retryOnError == nil || c.retryOnError(req, err)) {
 				shouldRetry = true
-			}
-
-			// Retry on network errors, but not on timeout errors, unless configured
-			if err, ok := err.(net.Error); ok {
-				if (!err.Timeout() || c.enableRetryOnTimeout) && !c.disableRetry {
-					shouldRetry = true
-				}
 			}
 		} else {
 			// Report the connection as succesfull
