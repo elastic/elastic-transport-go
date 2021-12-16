@@ -363,9 +363,9 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			c.pool.OnFailure(conn)
 			c.Unlock()
 
-			// Prevent retry upon decision by the user
+			// Retry upon decision by the user
 			if !c.disableRetry && (c.retryOnError == nil || c.retryOnError(req, err)) {
-				shouldRetry = false
+				shouldRetry = true
 			}
 		} else {
 			// Report the connection as succesfull
