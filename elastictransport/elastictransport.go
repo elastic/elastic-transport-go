@@ -368,7 +368,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			c.Unlock()
 
 			// Prevent retry upon decision by the user
-			if c.retryOnError != nil && !c.retryOnError(req, err) {
+			if !c.disableRetry && (c.retryOnError == nil || c.retryOnError(req, err)) {
 				shouldRetry = false
 			}
 		} else {
