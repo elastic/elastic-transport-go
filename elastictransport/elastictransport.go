@@ -372,9 +372,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		)
 
 		// Get connection from the pool
-		c.Lock()
 		conn, err = c.pool.Next()
-		c.Unlock()
 		if err != nil {
 			if c.logger != nil {
 				c.logRoundTrip(req, nil, err, time.Time{}, time.Duration(0))
@@ -416,9 +414,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			}
 
 			// Report the connection as unsuccessful
-			c.Lock()
 			_ = c.pool.OnFailure(conn)
-			c.Unlock()
 
 			// Retry upon decision by the user
 			if !c.disableRetry && (c.retryOnError == nil || c.retryOnError(req, err)) {
@@ -426,9 +422,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			}
 		} else {
 			// Report the connection as successful
-			c.Lock()
 			_ = c.pool.OnSuccess(conn)
-			c.Unlock()
 		}
 
 		if res != nil && c.metrics != nil {

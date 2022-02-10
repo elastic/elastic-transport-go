@@ -157,9 +157,7 @@ func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
 		return out, err
 	}
 
-	c.Lock()
 	conn, err := c.pool.Next()
-	c.Unlock()
 	// TODO(karmi): If no connection is returned, fallback to original URLs
 	if err != nil {
 		return out, err
