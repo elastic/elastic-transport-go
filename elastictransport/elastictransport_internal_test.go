@@ -998,9 +998,10 @@ func TestMaxRetries(t *testing.T) {
 func TestRequestCompression(t *testing.T) {
 
 	tests := []struct {
-		name            string
-		compressionFlag bool
-		inputBody       string
+		name             string
+		compressionFlag  bool
+		compressionLevel int
+		inputBody        string
 	}{
 		{
 			name:            "Uncompressed",
@@ -1008,9 +1009,15 @@ func TestRequestCompression(t *testing.T) {
 			inputBody:       "elasticsearch",
 		},
 		{
-			name:            "Compressed",
+			name:            "CompressedDefault",
 			compressionFlag: true,
 			inputBody:       "elasticsearch",
+		},
+		{
+			name:             "CompressedBestSpeed",
+			compressionFlag:  true,
+			compressionLevel: gzip.BestSpeed,
+			inputBody:        "elasticsearch",
 		},
 	}
 
@@ -1019,6 +1026,7 @@ func TestRequestCompression(t *testing.T) {
 			tp, _ := New(Config{
 				URLs:                []*url.URL{{}},
 				CompressRequestBody: test.compressionFlag,
+				CompressRequestBodyLevel: test.compressionLevel,
 				Transport: &mockTransp{
 					RoundTripFunc: func(req *http.Request) (*http.Response, error) {
 						if req.Body == nil || req.Body == http.NoBody {
