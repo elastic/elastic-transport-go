@@ -254,6 +254,10 @@ func New(cfg Config) (*Client, error) {
 		})
 	}
 
+	if client.compressRequestBodyLevel == 0 {
+		client.compressRequestBodyLevel = gzip.DefaultCompression
+	}
+
 	return &client, nil
 }
 
@@ -279,11 +283,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 	if req.Body != nil && req.Body != http.NoBody {
 		if c.compressRequestBody {
 			var buf bytes.Buffer
-			level := gzip.DefaultCompression
-			if c.compressRequestBodyLevel != 0 {
-				level = c.compressRequestBodyLevel
-			}
-			zw, err := gzip.NewWriterLevel(&buf, level)
+			zw, err := gzip.NewWriterLevel(&buf, c.compressRequestBodyLevel)
 			if err != nil {
 				fmt.Errorf("failed setting up up compress request body (level %d): %s",
 					c.compressRequestBodyLevel, err)
