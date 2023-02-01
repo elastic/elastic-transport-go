@@ -84,6 +84,7 @@ type Config struct {
 	RetryBackoff func(attempt int) time.Duration
 
 	CompressRequestBody bool
+	CompressRequestBodyLevel int
 
 	EnableMetrics     bool
 	EnableDebugLogger bool
@@ -125,6 +126,7 @@ type Client struct {
 	discoverNodesTimer    *time.Timer
 
 	compressRequestBody bool
+	compressRequestBodyLevel int
 
 	metrics *metrics
 
@@ -217,6 +219,7 @@ func New(cfg Config) (*Client, error) {
 		discoverNodesInterval: cfg.DiscoverNodesInterval,
 
 		compressRequestBody: cfg.CompressRequestBody,
+		compressRequestBodyLevel: cfg.CompressRequestBodyLevel,
 
 		transport: cfg.Transport,
 		logger:    cfg.Logger,
@@ -251,6 +254,10 @@ func New(cfg Config) (*Client, error) {
 		})
 	}
 
+	if client.compressRequestBodyLevel == 0 {
+		client.compressRequestBodyLevel = gzip.DefaultCompression
+	}
+
 	return &client, nil
 }
 
@@ -276,11 +283,15 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 	if req.Body != nil && req.Body != http.NoBody {
 		if c.compressRequestBody {
 			var buf bytes.Buffer
-			zw := gzip.NewWriter(&buf)
-			if _, err := io.Copy(zw, req.Body); err != nil {
+			zw, err := gzip.NewWriterLevel(&buf, c.compressRequestBodyLevel)
+			if err != nil {
+				fmt.Errorf("failed setting up up compress request body (level %d): %s",
+					c.compressRequestBodyLevel, err)
+			}
+			if _, err = io.Copy(zw, req.Body); err != nil {
 				return nil, fmt.Errorf("failed to compress request body: %s", err)
 			}
-			if err := zw.Close(); err != nil {
+			if err = zw.Close(); err != nil {
 				return nil, fmt.Errorf("failed to compress request body (during close): %s", err)
 			}
 
