@@ -71,7 +71,7 @@ func TestTransport(t *testing.T) {
 		if tp.transport == nil {
 			t.Error("Expected the transport to not be nil")
 		}
-		if tp.transport != http.DefaultTransport {
+		if _, ok := tp.transport.(*http.Transport); !ok {
 			t.Errorf("Expected the transport to be http.DefaultTransport, got: %T", tp.transport)
 		}
 	})
@@ -118,10 +118,11 @@ func TestTransportConfig(t *testing.T) {
 
 	t.Run("Custom", func(t *testing.T) {
 		tp, _ := New(Config{
-			RetryOnStatus:       []int{404, 408},
-			DisableRetry:        true,
-			MaxRetries:          5,
-			CompressRequestBody: true,
+			RetryOnStatus:          []int{404, 408},
+			DisableRetry:           true,
+			MaxRetries:             5,
+			CompressRequestBody:    true,
+			CertificateFingerprint: "7A3A6031CD097DA0EE84D65137912A84576B50194045B41F4F4B8AC1A98116BE",
 		})
 
 		if !reflect.DeepEqual(tp.retryOnStatus, []int{404, 408}) {
@@ -138,6 +139,10 @@ func TestTransportConfig(t *testing.T) {
 
 		if !tp.compressRequestBody {
 			t.Errorf("Unexpected compressRequestBody: %v", tp.compressRequestBody)
+		}
+
+		if tp.transport.(*http.Transport).DialTLS != nil && http.DefaultTransport.(*http.Transport).DialTLS != nil {
+			t.Errorf("DefaultTransport should have been cloned.")
 		}
 	})
 }
@@ -1024,8 +1029,8 @@ func TestRequestCompression(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			tp, _ := New(Config{
-				URLs:                []*url.URL{{}},
-				CompressRequestBody: test.compressionFlag,
+				URLs:                     []*url.URL{{}},
+				CompressRequestBody:      test.compressionFlag,
 				CompressRequestBodyLevel: test.compressionLevel,
 				Transport: &mockTransp{
 					RoundTripFunc: func(req *http.Request) (*http.Response, error) {
