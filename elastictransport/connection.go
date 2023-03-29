@@ -145,6 +145,10 @@ func (cp *statusConnectionPool) OnSuccess(c *Connection) error {
 	c.Lock()
 	defer c.Unlock()
 
+	if !c.IsDead {
+		return nil
+	}
+
 	c.markAsHealthy()
 	return cp.resurrect(c, true)
 }
