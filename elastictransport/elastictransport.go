@@ -51,6 +51,11 @@ type Interface interface {
 	Perform(*http.Request) (*http.Response, error)
 }
 
+// Instrumented allows to retrieve the current transport Instrumentation
+type Instrumented interface {
+	InstrumentationEnabled() Instrumentation
+}
+
 // Config represents the configuration of HTTP client.
 type Config struct {
 	UserAgent string
@@ -87,11 +92,16 @@ type Config struct {
 	EnableMetrics     bool
 	EnableDebugLogger bool
 
+	DisableInstrumentation            bool
+	EnableInstrumentationQueryCapture bool
+	Instrumentation                   Instrumentation
+
 	DiscoverNodesInterval time.Duration
 
-	Transport http.RoundTripper
-	Logger    Logger
-	Selector  Selector
+	HttpClient *http.Client
+	Transport  http.RoundTripper
+	Logger     Logger
+	Selector   Selector
 
 	ConnectionPoolFunc func([]*Connection, Selector) ConnectionPool
 
@@ -124,6 +134,10 @@ type Client struct {
 
 	compressRequestBody      bool
 	compressRequestBodyLevel int
+
+	disableInstrumentation            bool
+	enableInstrumentationQueryCapture bool
+	instrumentation                   Instrumentation
 
 	metrics *metrics
 
@@ -225,6 +239,10 @@ func New(cfg Config) (*Client, error) {
 		logger:    cfg.Logger,
 		selector:  cfg.Selector,
 		poolFunc:  cfg.ConnectionPoolFunc,
+
+		disableInstrumentation:            cfg.DisableInstrumentation,
+		enableInstrumentationQueryCapture: cfg.EnableInstrumentationQueryCapture,
+		instrumentation:                   cfg.Instrumentation,
 	}
 
 	if client.poolFunc != nil {
@@ -353,6 +371,15 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		res, err = c.transport.RoundTrip(req)
 		dur := time.Since(start)
 
+		if c.instrumentation != nil {
+			if id := res.Header.Get("X-Found-Handling-Cluster"); id != "" {
+				c.instrumentation.RecordClusterId(req.Context(), id)
+			}
+			if name := res.Header.Get("X-Found-Handling-Instance"); name != "" {
+				c.instrumentation.RecordNodeName(req.Context(), name)
+			}
+		}
+
 		// Log request and response
 		if c.logger != nil {
 			if c.logger.RequestBodyEnabled() && req.Body != nil && req.Body != http.NoBody {
@@ -443,6 +470,10 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 // URLs returns a list of transport URLs.
 func (c *Client) URLs() []*url.URL {
 	return c.pool.URLs()
+}
+
+func (c *Client) InstrumentationEnabled() Instrumentation {
+	return c.instrumentation
 }
 
 func (c *Client) setReqURL(u *url.URL, req *http.Request) *http.Request {
