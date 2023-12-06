@@ -80,8 +80,14 @@ type ElasticsearchOpenTelemetry struct {
 	recordQuery bool
 }
 
-func NewOtelInstrumentation(captureSearchBody bool, version string) *ElasticsearchOpenTelemetry {
-	provider := otel.GetTracerProvider()
+// NewOtelInstrumentation returns a new instrument for Open Telemetry traces
+// If no provider is passed, the instrumentation will fall back to the global otel provider.
+// captureSearchBody sets the query capture behavior for search endpoints.
+// version should be set to the version provided by the caller.
+func NewOtelInstrumentation(provider trace.TracerProvider, captureSearchBody bool, version string) *ElasticsearchOpenTelemetry {
+	if provider == nil {
+		provider = otel.GetTracerProvider()
+	}
 	return &ElasticsearchOpenTelemetry{
 		tracer: provider.Tracer(
 			tracerName,
@@ -138,7 +144,7 @@ func (i *ElasticsearchOpenTelemetry) RecordQuery(ctx context.Context, endpoint, 
 func (i *ElasticsearchOpenTelemetry) RecordError(ctx context.Context, err error) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
-		span.SetStatus(codes.Error, "an error happened")
+		span.SetStatus(codes.Error, "an error happened while executing a request")
 		span.RecordError(err)
 	}
 }
