@@ -371,15 +371,6 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		res, err = c.transport.RoundTrip(req)
 		dur := time.Since(start)
 
-		if c.instrumentation != nil {
-			if id := res.Header.Get("X-Found-Handling-Cluster"); id != "" {
-				c.instrumentation.RecordClusterId(req.Context(), id)
-			}
-			if name := res.Header.Get("X-Found-Handling-Instance"); name != "" {
-				c.instrumentation.RecordNodeName(req.Context(), name)
-			}
-		}
-
 		// Log request and response
 		if c.logger != nil {
 			if c.logger.RequestBodyEnabled() && req.Body != nil && req.Body != http.NoBody {
@@ -416,6 +407,15 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			c.metrics.Lock()
 			c.metrics.responses[res.StatusCode]++
 			c.metrics.Unlock()
+		}
+
+		if res != nil && c.instrumentation != nil {
+			if id := res.Header.Get("X-Found-Handling-Cluster"); id != "" {
+				c.instrumentation.RecordClusterId(req.Context(), id)
+			}
+			if name := res.Header.Get("X-Found-Handling-Instance"); name != "" {
+				c.instrumentation.RecordNodeName(req.Context(), name)
+			}
 		}
 
 		// Retry on configured response statuses
