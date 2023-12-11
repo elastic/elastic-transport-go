@@ -285,7 +285,9 @@ func TestElasticsearchOpenTelemetry_RecordQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error while creating request")
 	}
-	instrument.RecordQuery(ctx, "random", query)
+	if instrument.ShouldRecordQuery("foo.endpoint") {
+		instrument.RecordQuery(ctx, query)
+	}
 	instrument.Close(ctx)
 
 	// Will log query
@@ -294,7 +296,9 @@ func TestElasticsearchOpenTelemetry_RecordQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error while creating request")
 	}
-	instrument.RecordQuery(secondCtx, endpoint, query)
+	if instrument.ShouldRecordQuery(endpoint) {
+		instrument.RecordQuery(secondCtx, query)
+	}
 	instrument.Close(secondCtx)
 
 	err = provider.ForceFlush(context.Background())
