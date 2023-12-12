@@ -18,11 +18,13 @@
 package elastictransport
 
 import (
+	"bytes"
 	"context"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"io"
 	"net/http"
 	"strconv"
 )
@@ -68,7 +70,7 @@ type Instrumentation interface {
 	ShouldRecordQuery(endpoint string) bool
 
 	// RecordQuery provides the endpoint name as well as the current request payload.
-	RecordQuery(ctx context.Context, query string)
+	RecordQuery(ctx context.Context, query io.Reader) io.ReadCloser
 
 	// BeforeRequest provides the request and endpoint name, called before sending to the server.
 	BeforeRequest(req *http.Request, endpoint string)
@@ -141,11 +143,21 @@ func (i *ElasticsearchOpenTelemetry) ShouldRecordQuery(endpoint string) bool {
 }
 
 // RecordQuery add the db.statement attributes only for the search endpoints.
-func (i *ElasticsearchOpenTelemetry) RecordQuery(ctx context.Context, query string) {
+func (i *ElasticsearchOpenTelemetry) RecordQuery(ctx context.Context, query io.Reader) io.ReadCloser {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
-		span.SetAttributes(attribute.String(attrDbStatement, query))
+		buf := bytes.Buffer{}
+		buf.ReadFrom(query)
+		span.SetAttributes(attribute.String(attrDbStatement, buf.String()))
+		getBody := func() (io.ReadCloser, error) {
+			reader := buf
+			return io.NopCloser(&reader), nil
+		}
+		reader, _ := getBody()
+		return reader
 	}
+
+	return nil
 }
 
 // RecordError sets any provided error as an OTel error in the active span.
