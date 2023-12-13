@@ -106,13 +106,13 @@ func NewOtelInstrumentation(provider trace.TracerProvider, captureSearchBody boo
 // Start begins a new span in the given context with the provided name.
 // Span will always have a kind set to trace.SpanKindClient.
 // The context span aware is returned for use within the client.
-func (i *ElasticsearchOpenTelemetry) Start(ctx context.Context, name string) context.Context {
+func (i ElasticsearchOpenTelemetry) Start(ctx context.Context, name string) context.Context {
 	newCtx, _ := i.tracer.Start(ctx, name, trace.WithSpanKind(trace.SpanKindClient))
 	return newCtx
 }
 
 // Close call for the end of the span, preferably defered by the client once started.
-func (i *ElasticsearchOpenTelemetry) Close(ctx context.Context) {
+func (i ElasticsearchOpenTelemetry) Close(ctx context.Context) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
 		span.End()
@@ -120,7 +120,7 @@ func (i *ElasticsearchOpenTelemetry) Close(ctx context.Context) {
 }
 
 // ShouldRecordQuery filters for search endpoints.
-func (i *ElasticsearchOpenTelemetry) ShouldRecordQuery(endpoint string) bool {
+func (i ElasticsearchOpenTelemetry) ShouldRecordQuery(endpoint string) bool {
 	// allow list of endpoints that will propagate query to OpenTelemetry.
 	// see https://opentelemetry.io/docs/specs/semconv/database/elasticsearch/#call-level-attributes
 	var searchEndpoints = map[string]struct{}{
@@ -143,7 +143,7 @@ func (i *ElasticsearchOpenTelemetry) ShouldRecordQuery(endpoint string) bool {
 }
 
 // RecordQuery add the db.statement attributes only for the search endpoints.
-func (i *ElasticsearchOpenTelemetry) RecordQuery(ctx context.Context, query io.Reader) io.ReadCloser {
+func (i ElasticsearchOpenTelemetry) RecordQuery(ctx context.Context, query io.Reader) io.ReadCloser {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
 		buf := bytes.Buffer{}
@@ -161,7 +161,7 @@ func (i *ElasticsearchOpenTelemetry) RecordQuery(ctx context.Context, query io.R
 }
 
 // RecordError sets any provided error as an OTel error in the active span.
-func (i *ElasticsearchOpenTelemetry) RecordError(ctx context.Context, err error) {
+func (i ElasticsearchOpenTelemetry) RecordError(ctx context.Context, err error) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
 		span.SetStatus(codes.Error, "an error happened while executing a request")
@@ -170,7 +170,7 @@ func (i *ElasticsearchOpenTelemetry) RecordError(ctx context.Context, err error)
 }
 
 // RecordClusterId propagate the cluster ID provided by Elastic Cloud via the X-Found-Handling-Cluster header.
-func (i *ElasticsearchOpenTelemetry) RecordClusterId(ctx context.Context, id string) {
+func (i ElasticsearchOpenTelemetry) RecordClusterId(ctx context.Context, id string) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
 		span.SetAttributes(
@@ -180,7 +180,7 @@ func (i *ElasticsearchOpenTelemetry) RecordClusterId(ctx context.Context, id str
 }
 
 // RecordNodeName propagate the node name provided by Elastic Cloud via the X-Found-Handling-Instance header.
-func (i *ElasticsearchOpenTelemetry) RecordNodeName(ctx context.Context, name string) {
+func (i ElasticsearchOpenTelemetry) RecordNodeName(ctx context.Context, name string) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
 		span.SetAttributes(
@@ -191,7 +191,7 @@ func (i *ElasticsearchOpenTelemetry) RecordNodeName(ctx context.Context, name st
 
 // RecordPathPart sets the couple for a specific path part.
 // An index placed in the path would translate to `db.elasticsearch.path_parts.index`.
-func (i *ElasticsearchOpenTelemetry) RecordPathPart(ctx context.Context, pathPart, value string) {
+func (i ElasticsearchOpenTelemetry) RecordPathPart(ctx context.Context, pathPart, value string) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
 		span.SetAttributes(attribute.String(attrPathParts+pathPart, value))
@@ -199,10 +199,10 @@ func (i *ElasticsearchOpenTelemetry) RecordPathPart(ctx context.Context, pathPar
 }
 
 // BeforeRequest noop for interface.
-func (i *ElasticsearchOpenTelemetry) BeforeRequest(req *http.Request, endpoint string) {}
+func (i ElasticsearchOpenTelemetry) BeforeRequest(req *http.Request, endpoint string) {}
 
 // AfterRequest enrich the span with the available data from the request.
-func (i *ElasticsearchOpenTelemetry) AfterRequest(req *http.Request, system, endpoint string) {
+func (i ElasticsearchOpenTelemetry) AfterRequest(req *http.Request, system, endpoint string) {
 	span := trace.SpanFromContext(req.Context())
 	if span.IsRecording() {
 		span.SetAttributes(
