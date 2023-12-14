@@ -403,12 +403,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		}
 
 		if res != nil && c.instrumentation != nil {
-			if id := res.Header.Get("X-Found-Handling-Cluster"); id != "" {
-				c.instrumentation.RecordClusterId(req.Context(), id)
-			}
-			if name := res.Header.Get("X-Found-Handling-Instance"); name != "" {
-				c.instrumentation.RecordNodeName(req.Context(), name)
-			}
+			c.instrumentation.AfterResponse(req.Context(), res)
 		}
 
 		// Retry on configured response statuses

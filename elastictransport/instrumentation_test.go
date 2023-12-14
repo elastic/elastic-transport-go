@@ -177,7 +177,9 @@ func TestElasticsearchOpenTelemetry_RecordClusterId(t *testing.T) {
 
 	ctx := instrument.Start(context.Background(), spanName)
 	clusterId := "randomclusterid"
-	instrument.RecordClusterId(ctx, clusterId)
+	instrument.AfterResponse(ctx, &http.Response{Header: map[string][]string{
+		"X-Found-Handling-Cluster": {clusterId},
+	}})
 	instrument.Close(ctx)
 	err := provider.ForceFlush(context.Background())
 	if err != nil {
@@ -209,7 +211,9 @@ func TestElasticsearchOpenTelemetry_RecordNodeName(t *testing.T) {
 
 	ctx := instrument.Start(context.Background(), spanName)
 	nodeName := "randomnodename"
-	instrument.RecordNodeName(ctx, nodeName)
+	instrument.AfterResponse(ctx, &http.Response{Header: map[string][]string{
+		"X-Found-Handling-Instance": {nodeName},
+	}})
 	instrument.Close(ctx)
 	err := provider.ForceFlush(context.Background())
 	if err != nil {

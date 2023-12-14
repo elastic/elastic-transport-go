@@ -57,12 +57,6 @@ type Instrumentation interface {
 	// RecordError propagates an error.
 	RecordError(ctx context.Context, err error)
 
-	// RecordClusterId provides the cluster id returned by Elastic Cloud.
-	RecordClusterId(ctx context.Context, id string)
-
-	// RecordNodeName provides the node name returned by Elastic Cloud.
-	RecordNodeName(ctx context.Context, name string)
-
 	// RecordPathPart provides the path variables, called once per variable in the url.
 	RecordPathPart(ctx context.Context, pathPart, value string)
 
@@ -75,6 +69,9 @@ type Instrumentation interface {
 	// AfterRequest provides the request, system used (e.g. elasticsearch) and endpoint name.
 	// Called after the request has been enhanced with the information from the transport and sent to the server.
 	AfterRequest(req *http.Request, system, endpoint string)
+
+	// AfterResponse provides the response.
+	AfterResponse(ctx context.Context, res *http.Response)
 }
 
 type ElasticsearchOpenTelemetry struct {
@@ -171,26 +168,6 @@ func (i ElasticsearchOpenTelemetry) RecordError(ctx context.Context, err error) 
 	}
 }
 
-// RecordClusterId propagate the cluster ID provided by Elastic Cloud via the X-Found-Handling-Cluster header.
-func (i ElasticsearchOpenTelemetry) RecordClusterId(ctx context.Context, id string) {
-	span := trace.SpanFromContext(ctx)
-	if span.IsRecording() {
-		span.SetAttributes(
-			attribute.String(attrDbElasticsearchClusterName, id),
-		)
-	}
-}
-
-// RecordNodeName propagate the node name provided by Elastic Cloud via the X-Found-Handling-Instance header.
-func (i ElasticsearchOpenTelemetry) RecordNodeName(ctx context.Context, name string) {
-	span := trace.SpanFromContext(ctx)
-	if span.IsRecording() {
-		span.SetAttributes(
-			attribute.String(attrDbElasticsearchNodeName, name),
-		)
-	}
-}
-
 // RecordPathPart sets the couple for a specific path part.
 // An index placed in the path would translate to `db.elasticsearch.path_parts.index`.
 func (i ElasticsearchOpenTelemetry) RecordPathPart(ctx context.Context, pathPart, value string) {
@@ -216,6 +193,23 @@ func (i ElasticsearchOpenTelemetry) AfterRequest(req *http.Request, system, endp
 		)
 		if value, err := strconv.ParseInt(req.URL.Port(), 10, 32); err == nil {
 			span.SetAttributes(attribute.Int64(attrServerPort, value))
+		}
+	}
+}
+
+// AfterResponse enric the span with the cluster id and node name if the query was executed on Elastic Cloud.
+func (i ElasticsearchOpenTelemetry) AfterResponse(ctx context.Context, res *http.Response) {
+	span := trace.SpanFromContext(ctx)
+	if span.IsRecording() {
+		if id := res.Header.Get("X-Found-Handling-Cluster"); id != "" {
+			span.SetAttributes(
+				attribute.String(attrDbElasticsearchClusterName, id),
+			)
+		}
+		if name := res.Header.Get("X-Found-Handling-Instance"); name != "" {
+			span.SetAttributes(
+				attribute.String(attrDbElasticsearchNodeName, name),
+			)
 		}
 	}
 }
