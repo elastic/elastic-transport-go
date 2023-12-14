@@ -92,8 +92,7 @@ type Config struct {
 	EnableMetrics     bool
 	EnableDebugLogger bool
 
-	EnableOpenTelemetryQueryCapture bool
-	Instrumentation                 Instrumentation
+	Instrumentation Instrumentation
 
 	DiscoverNodesInterval time.Duration
 
@@ -134,8 +133,7 @@ type Client struct {
 	compressRequestBody      bool
 	compressRequestBodyLevel int
 
-	enableOpenTelemetryQueryCapture bool
-	instrumentation                 Instrumentation
+	instrumentation Instrumentation
 
 	metrics *metrics
 
@@ -238,8 +236,7 @@ func New(cfg Config) (*Client, error) {
 		selector:  cfg.Selector,
 		poolFunc:  cfg.ConnectionPoolFunc,
 
-		enableOpenTelemetryQueryCapture: cfg.EnableOpenTelemetryQueryCapture,
-		instrumentation:                 cfg.Instrumentation,
+		instrumentation: cfg.Instrumentation,
 	}
 
 	if client.poolFunc != nil {

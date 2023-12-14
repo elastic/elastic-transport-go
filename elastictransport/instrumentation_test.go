@@ -285,8 +285,8 @@ func TestElasticsearchOpenTelemetry_RecordQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error while creating request")
 	}
-	if instrument.ShouldRecordQuery("foo.endpoint") {
-		_ = instrument.RecordQuery(ctx, strings.NewReader(query))
+	if reader := instrument.RecordQuery(ctx, "foo.endpoint", strings.NewReader(query)); reader != nil {
+		t.Errorf("returned reader should be nil")
 	}
 	instrument.Close(ctx)
 
@@ -296,8 +296,8 @@ func TestElasticsearchOpenTelemetry_RecordQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error while creating request")
 	}
-	if instrument.ShouldRecordQuery(endpoint) {
-		_ = instrument.RecordQuery(secondCtx, strings.NewReader(query))
+	if reader := instrument.RecordQuery(secondCtx, "search", strings.NewReader(query)); reader == nil {
+		t.Errorf("returned reader should not be nil")
 	}
 	instrument.Close(secondCtx)
 

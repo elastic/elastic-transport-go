@@ -66,11 +66,8 @@ type Instrumentation interface {
 	// RecordPathPart provides the path variables, called once per variable in the url.
 	RecordPathPart(ctx context.Context, pathPart, value string)
 
-	// ShouldRecordQuery determines is the endpoint is within the allow list for query recording.
-	ShouldRecordQuery(endpoint string) bool
-
 	// RecordQuery provides the endpoint name as well as the current request payload.
-	RecordQuery(ctx context.Context, query io.Reader) io.ReadCloser
+	RecordQuery(ctx context.Context, endpoint string, query io.Reader) io.ReadCloser
 
 	// BeforeRequest provides the request and endpoint name, called before sending to the server.
 	BeforeRequest(req *http.Request, endpoint string)
@@ -119,8 +116,8 @@ func (i ElasticsearchOpenTelemetry) Close(ctx context.Context) {
 	}
 }
 
-// ShouldRecordQuery filters for search endpoints.
-func (i ElasticsearchOpenTelemetry) ShouldRecordQuery(endpoint string) bool {
+// shouldRecordQuery filters for search endpoints.
+func (i ElasticsearchOpenTelemetry) shouldRecordQuery(endpoint string) bool {
 	// allow list of endpoints that will propagate query to OpenTelemetry.
 	// see https://opentelemetry.io/docs/specs/semconv/database/elasticsearch/#call-level-attributes
 	var searchEndpoints = map[string]struct{}{
@@ -142,8 +139,13 @@ func (i ElasticsearchOpenTelemetry) ShouldRecordQuery(endpoint string) bool {
 	return false
 }
 
-// RecordQuery add the db.statement attributes only for the search endpoints.
-func (i ElasticsearchOpenTelemetry) RecordQuery(ctx context.Context, query io.Reader) io.ReadCloser {
+// RecordQuery add the db.statement attributes only for search endpoints.
+// Returns a new reader if the query has been recorded, nil otherwise.
+func (i ElasticsearchOpenTelemetry) RecordQuery(ctx context.Context, endpoint string, query io.Reader) io.ReadCloser {
+	if i.shouldRecordQuery(endpoint) == false {
+		return nil
+	}
+
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
 		buf := bytes.Buffer{}
