@@ -96,10 +96,9 @@ type Config struct {
 
 	DiscoverNodesInterval time.Duration
 
-	HttpClient *http.Client
-	Transport  http.RoundTripper
-	Logger     Logger
-	Selector   Selector
+	Transport http.RoundTripper
+	Logger    Logger
+	Selector  Selector
 
 	ConnectionPoolFunc func([]*Connection, Selector) ConnectionPool
 
