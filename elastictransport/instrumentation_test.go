@@ -278,7 +278,7 @@ func TestElasticsearchOpenTelemetry_RecordPathPart(t *testing.T) {
 	}
 }
 
-func TestElasticsearchOpenTelemetry_RecordQuery(t *testing.T) {
+func TestElasticsearchOpenTelemetry_RecordRequestBody(t *testing.T) {
 	exporter, provider, instrument := NewTestOpenTelemetry()
 	fullUrl := "http://elastic:elastic@localhost:9200/test-index/_search"
 	query := `{"query": {"match_all": {}}}`
@@ -289,7 +289,7 @@ func TestElasticsearchOpenTelemetry_RecordQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error while creating request")
 	}
-	if reader := instrument.RecordQuery(ctx, "foo.endpoint", strings.NewReader(query)); reader != nil {
+	if reader := instrument.RecordRequestBody(ctx, "foo.endpoint", strings.NewReader(query)); reader != nil {
 		t.Errorf("returned reader should be nil")
 	}
 	instrument.Close(ctx)
@@ -300,7 +300,7 @@ func TestElasticsearchOpenTelemetry_RecordQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error while creating request")
 	}
-	if reader := instrument.RecordQuery(secondCtx, "search", strings.NewReader(query)); reader == nil {
+	if reader := instrument.RecordRequestBody(secondCtx, "search", strings.NewReader(query)); reader == nil {
 		t.Errorf("returned reader should not be nil")
 	}
 	instrument.Close(secondCtx)

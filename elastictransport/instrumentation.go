@@ -60,8 +60,8 @@ type Instrumentation interface {
 	// RecordPathPart provides the path variables, called once per variable in the url.
 	RecordPathPart(ctx context.Context, pathPart, value string)
 
-	// RecordQuery provides the endpoint name as well as the current request payload.
-	RecordQuery(ctx context.Context, endpoint string, query io.Reader) io.ReadCloser
+	// RecordRequestBody provides the endpoint name as well as the current request payload.
+	RecordRequestBody(ctx context.Context, endpoint string, query io.Reader) io.ReadCloser
 
 	// BeforeRequest provides the request and endpoint name, called before sending to the server.
 	BeforeRequest(req *http.Request, endpoint string)
@@ -75,8 +75,8 @@ type Instrumentation interface {
 }
 
 type ElasticsearchOpenTelemetry struct {
-	tracer      trace.Tracer
-	recordQuery bool
+	tracer     trace.Tracer
+	recordBody bool
 }
 
 // NewOtelInstrumentation returns a new instrument for Open Telemetry traces
@@ -93,7 +93,7 @@ func NewOtelInstrumentation(provider trace.TracerProvider, captureSearchBody boo
 			trace.WithInstrumentationVersion(version),
 			trace.WithSchemaURL(schemaUrl),
 		),
-		recordQuery: captureSearchBody,
+		recordBody: captureSearchBody,
 	}
 }
 
@@ -113,8 +113,8 @@ func (i ElasticsearchOpenTelemetry) Close(ctx context.Context) {
 	}
 }
 
-// shouldRecordQuery filters for search endpoints.
-func (i ElasticsearchOpenTelemetry) shouldRecordQuery(endpoint string) bool {
+// shouldRecordRequestBody filters for search endpoints.
+func (i ElasticsearchOpenTelemetry) shouldRecordRequestBody(endpoint string) bool {
 	// allow list of endpoints that will propagate query to OpenTelemetry.
 	// see https://opentelemetry.io/docs/specs/semconv/database/elasticsearch/#call-level-attributes
 	var searchEndpoints = map[string]struct{}{
@@ -128,7 +128,7 @@ func (i ElasticsearchOpenTelemetry) shouldRecordQuery(endpoint string) bool {
 		"render_search_template": {},
 	}
 
-	if i.recordQuery {
+	if i.recordBody {
 		if _, ok := searchEndpoints[endpoint]; ok {
 			return true
 		}
@@ -136,10 +136,10 @@ func (i ElasticsearchOpenTelemetry) shouldRecordQuery(endpoint string) bool {
 	return false
 }
 
-// RecordQuery add the db.statement attributes only for search endpoints.
+// RecordRequestBody add the db.statement attributes only for search endpoints.
 // Returns a new reader if the query has been recorded, nil otherwise.
-func (i ElasticsearchOpenTelemetry) RecordQuery(ctx context.Context, endpoint string, query io.Reader) io.ReadCloser {
-	if i.shouldRecordQuery(endpoint) == false {
+func (i ElasticsearchOpenTelemetry) RecordRequestBody(ctx context.Context, endpoint string, query io.Reader) io.ReadCloser {
+	if i.shouldRecordRequestBody(endpoint) == false {
 		return nil
 	}
 
