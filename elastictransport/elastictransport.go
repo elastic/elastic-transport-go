@@ -314,7 +314,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			gzipWriter := c.newGzipWriter()
 			if gzipWriter.err != nil {
 				return nil, fmt.Errorf("failed setting up up compress request body (level %d): %s",
-					c.compressRequestBodyLevel, err)
+					c.compressRequestBodyLevel, gzipWriter.err)
 			}
 			defer c.gzipWriterPool.Put(gzipWriter)
 
