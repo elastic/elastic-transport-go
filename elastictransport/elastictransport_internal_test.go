@@ -1013,6 +1013,7 @@ func TestRequestCompression(t *testing.T) {
 		name             string
 		compressionFlag  bool
 		compressionLevel int
+		poolCompressor   bool
 		inputBody        string
 	}{
 		{
@@ -1031,6 +1032,12 @@ func TestRequestCompression(t *testing.T) {
 			compressionLevel: gzip.BestSpeed,
 			inputBody:        "elasticsearch",
 		},
+		{
+			name:            "CompressedDefault",
+			compressionFlag: true,
+			poolCompressor:  true,
+			inputBody:       "elasticsearch",
+		},
 	}
 
 	for _, test := range tests {
@@ -1039,6 +1046,7 @@ func TestRequestCompression(t *testing.T) {
 				URLs:                     []*url.URL{{}},
 				CompressRequestBody:      test.compressionFlag,
 				CompressRequestBodyLevel: test.compressionLevel,
+				PoolCompressor:           test.poolCompressor,
 				Transport: &mockTransp{
 					RoundTripFunc: func(req *http.Request) (*http.Response, error) {
 						if req.Body == nil || req.Body == http.NoBody {

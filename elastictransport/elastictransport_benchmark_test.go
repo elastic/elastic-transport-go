@@ -22,7 +22,6 @@ package elastictransport_test
 
 import (
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"strings"
@@ -88,14 +87,15 @@ func BenchmarkTransport(b *testing.B) {
 		}
 	})
 
-	body := strings.NewReader(generateRandomString(100))
-	b.Run("Compress body (bodysize: small)", func(b *testing.B) {
+	b.Run("Compress body (pool: false)", func(b *testing.B) {
+		tp, _ := elastictransport.New(elastictransport.Config{
+			URLs:                []*url.URL{{Scheme: "http", Host: "foo"}},
+			Transport:           newFakeTransport(b),
+			CompressRequestBody: true,
+		})
+
 		for i := 0; i < b.N; i++ {
-			tp, _ := elastictransport.New(elastictransport.Config{
-				URLs:                []*url.URL{{Scheme: "http", Host: "foo"}},
-				Transport:           newFakeTransport(b),
-				CompressRequestBody: true,
-			})
+			body := strings.NewReader(`{"query":{"match_all":{}}}`)
 
 			req, _ := http.NewRequest("GET", "/abc", body)
 			_, err := tp.Perform(req)
@@ -105,16 +105,16 @@ func BenchmarkTransport(b *testing.B) {
 		}
 	})
 
-	body = strings.NewReader(generateRandomString(1_000_000))
-	b.Run("Compress body (bodysize: large)", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			tp, _ := elastictransport.New(elastictransport.Config{
-				URLs:                []*url.URL{{Scheme: "http", Host: "foo"}},
-				Transport:           newFakeTransport(b),
-				CompressRequestBody: true,
-			})
+	b.Run("Compress body (pool: true)", func(b *testing.B) {
+		tp, _ := elastictransport.New(elastictransport.Config{
+			URLs:                []*url.URL{{Scheme: "http", Host: "foo"}},
+			Transport:           newFakeTransport(b),
+			CompressRequestBody: true,
+			PoolCompressor:      true,
+		})
 
-			body := strings.NewReader(`FAKE`)
+		for i := 0; i < b.N; i++ {
+			body := strings.NewReader(`{"query":{"match_all":{}}}`)
 
 			req, _ := http.NewRequest("GET", "/abc", body)
 			_, err := tp.Perform(req)
@@ -123,17 +123,4 @@ func BenchmarkTransport(b *testing.B) {
 			}
 		}
 	})
-}
-
-func generateRandomString(length int) string {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	result := make([]byte, length)
-
-	seed := rand.NewSource(1)
-	random := rand.New(seed)
-
-	for i := range result {
-		result[i] = charset[random.Intn(len(charset))]
-	}
-	return string(result)
 }
