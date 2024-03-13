@@ -88,7 +88,8 @@ type Config struct {
 
 	CompressRequestBody      bool
 	CompressRequestBodyLevel int
-	PoolCompressor           bool
+	// If PoolCompressor is true, a sync.Pool based gzip writer is used. Should be enabled with CompressRequestBody.
+	PoolCompressor bool
 
 	EnableMetrics     bool
 	EnableDebugLogger bool
