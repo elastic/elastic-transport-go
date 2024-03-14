@@ -86,4 +86,41 @@ func BenchmarkTransport(b *testing.B) {
 			}
 		}
 	})
+
+	b.Run("Compress body (pool: false)", func(b *testing.B) {
+		tp, _ := elastictransport.New(elastictransport.Config{
+			URLs:                []*url.URL{{Scheme: "http", Host: "foo"}},
+			Transport:           newFakeTransport(b),
+			CompressRequestBody: true,
+		})
+
+		for i := 0; i < b.N; i++ {
+			body := strings.NewReader(`{"query":{"match_all":{}}}`)
+
+			req, _ := http.NewRequest("GET", "/abc", body)
+			_, err := tp.Perform(req)
+			if err != nil {
+				b.Fatalf("Unexpected error: %s", err)
+			}
+		}
+	})
+
+	b.Run("Compress body (pool: true)", func(b *testing.B) {
+		tp, _ := elastictransport.New(elastictransport.Config{
+			URLs:                []*url.URL{{Scheme: "http", Host: "foo"}},
+			Transport:           newFakeTransport(b),
+			CompressRequestBody: true,
+			PoolCompressor:      true,
+		})
+
+		for i := 0; i < b.N; i++ {
+			body := strings.NewReader(`{"query":{"match_all":{}}}`)
+
+			req, _ := http.NewRequest("GET", "/abc", body)
+			_, err := tp.Perform(req)
+			if err != nil {
+				b.Fatalf("Unexpected error: %s", err)
+			}
+		}
+	})
 }
