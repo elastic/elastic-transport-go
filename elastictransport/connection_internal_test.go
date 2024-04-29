@@ -21,6 +21,7 @@
 package elastictransport
 
 import (
+	"fmt"
 	"net/url"
 	"regexp"
 	"testing"
@@ -375,5 +376,52 @@ func TestConnection(t *testing.T) {
 		if !match {
 			t.Errorf("Unexpected output: %s", conn)
 		}
+	})
+}
+
+func TestUpdateConnectionPool(t *testing.T) {
+	var initialConnections = []*Connection{
+		{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+		{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+		{URL: &url.URL{Scheme: "http", Host: "foo3"}},
+	}
+
+	t.Run("Update connection pool", func(t *testing.T) {
+		pool := &statusConnectionPool{live: initialConnections}
+
+		if len(pool.URLs()) != 3 {
+			t.Fatalf("Invalid number of URLs: %d", len(pool.URLs()))
+		}
+
+		var updatedConnections = []*Connection{
+			{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+			{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+			{URL: &url.URL{Scheme: "http", Host: "bar1"}},
+			{URL: &url.URL{Scheme: "http", Host: "bar2"}},
+		}
+
+		_ = pool.Update(updatedConnections)
+
+		if len(pool.URLs()) != 4 {
+			t.Fatalf("Invalid number of URLs: %d", len(pool.URLs()))
+		}
+	})
+
+	t.Run("Update connection pool with dead connections", func(t *testing.T) {
+		pool := &statusConnectionPool{live: initialConnections}
+
+		pool.dead = []*Connection{
+			{URL: &url.URL{Scheme: "http", Host: "bar1"}},
+		}
+		var updatedConnections = []*Connection{
+			{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+			{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+			{URL: &url.URL{Scheme: "http", Host: "bar1"}},
+		}
+
+		pool.Update(updatedConnections)
+
+		fmt.Println(pool.live)
+		fmt.Println(pool.dead)
 	})
 }
