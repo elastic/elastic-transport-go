@@ -117,9 +117,6 @@ func (cp *singleConnectionPool) OnSuccess(c *Connection) error { return nil }
 // OnFailure is a no-op for single connection pool.
 func (cp *singleConnectionPool) OnFailure(c *Connection) error { return nil }
 
-// Update is a no-op for single connection pool.
-func (cp *singleConnectionPool) Update([]*Connection) error { return nil }
-
 // URLs returns the list of URLs of available connections.
 func (cp *singleConnectionPool) URLs() []*url.URL { return []*url.URL{cp.connection.URL} }
 
