@@ -449,6 +449,28 @@ func TestUpdateConnectionPool(t *testing.T) {
 		fmt.Println(pool.dead)
 	})
 
+	t.Run("Update connection pool with different ports and or path", func(t *testing.T) {
+		conns := []Connection{
+			{URL: &url.URL{Scheme: "http", Host: "foo1:9200"}},
+			{URL: &url.URL{Scheme: "http", Host: "foo1:9205"}},
+			{URL: &url.URL{Scheme: "http", Host: "foo1:9200", Path: "/bar1"}},
+		}
+		pool := &statusConnectionPool{}
+		for i := 0; i < len(conns); i++ {
+			pool.live = append(pool.live, &conns[i])
+		}
+
+		tmp := []*Connection{}
+		for i := 0; i < len(conns); i++ {
+			tmp = append(tmp, &conns[i])
+		}
+		pool.Update(tmp)
+
+		if len(pool.live) != len(tmp) {
+			t.Errorf("Invalid number of connections: %d", len(pool.live))
+		}
+	})
+
 	t.Run("Update connection pool lifecycle", func(t *testing.T) {
 		// Set up a test connection pool with some initial connections
 		cp := &statusConnectionPool{
