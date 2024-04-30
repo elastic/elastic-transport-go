@@ -188,16 +188,6 @@ func (cp *statusConnectionPool) OnFailure(c *Connection) error {
 	cp.scheduleResurrect(c)
 	c.Unlock()
 
-	// Push item to dead list and sort slice by number of failures
-	cp.dead = append(cp.dead, c)
-	sort.Slice(cp.dead, func(i, j int) bool {
-		c1 := cp.dead[i]
-		c2 := cp.dead[j]
-
-		res := c1.Failures > c2.Failures
-		return res
-	})
-
 	// Check if connection exists in the list, return error if not.
 	index := -1
 	for i, conn := range cp.live {
@@ -208,6 +198,16 @@ func (cp *statusConnectionPool) OnFailure(c *Connection) error {
 	if index < 0 {
 		return errors.New("connection not in live list")
 	}
+
+	// Push item to dead list and sort slice by number of failures
+	cp.dead = append(cp.dead, c)
+	sort.Slice(cp.dead, func(i, j int) bool {
+		c1 := cp.dead[i]
+		c2 := cp.dead[j]
+
+		res := c1.Failures > c2.Failures
+		return res
+	})
 
 	// Remove item; https://github.com/golang/go/wiki/SliceTricks
 	copy(cp.live[index:], cp.live[index+1:])
