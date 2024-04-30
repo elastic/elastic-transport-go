@@ -380,14 +380,23 @@ func TestConnection(t *testing.T) {
 }
 
 func TestUpdateConnectionPool(t *testing.T) {
-	var initialConnections = []*Connection{
+	var initialConnections = []Connection{
 		{URL: &url.URL{Scheme: "http", Host: "foo1"}},
 		{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 		{URL: &url.URL{Scheme: "http", Host: "foo3"}},
 	}
 
+	initConnList := func() []*Connection {
+		var conns []*Connection
+		for i := 0; i < len(initialConnections); i++ {
+			conns = append(conns, &initialConnections[i])
+		}
+
+		return conns
+	}
+
 	t.Run("Update connection pool", func(t *testing.T) {
-		pool := &statusConnectionPool{live: initialConnections}
+		pool := &statusConnectionPool{live: initConnList()}
 
 		if len(pool.URLs()) != 3 {
 			t.Fatalf("Invalid number of URLs: %d", len(pool.URLs()))
@@ -408,7 +417,7 @@ func TestUpdateConnectionPool(t *testing.T) {
 	})
 
 	t.Run("Update connection pool with dead connections", func(t *testing.T) {
-		pool := &statusConnectionPool{live: initialConnections}
+		pool := &statusConnectionPool{live: initConnList()}
 
 		pool.dead = []*Connection{
 			{URL: &url.URL{Scheme: "http", Host: "bar1"}},
@@ -423,5 +432,82 @@ func TestUpdateConnectionPool(t *testing.T) {
 
 		fmt.Println(pool.live)
 		fmt.Println(pool.dead)
+	})
+
+	t.Run("Update connection pool lifecycle", func(t *testing.T) {
+		// Set up a test connection pool with some initial connections
+		cp := &statusConnectionPool{
+			live: initConnList(),
+		}
+		err := cp.Update(initConnList())
+		if err != nil {
+			t.Errorf("Update() returned an error: %v", err)
+		}
+
+		// Test removing a connection that's no longer present
+		connections := []*Connection{
+			{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+			{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+		}
+		err = cp.Update(connections)
+		if len(cp.live) != 2 {
+			t.Errorf("Expected only two live connection after update")
+		}
+
+		// foo1 fails
+		cp.OnFailure(cp.live[0])
+		// we update the connexion, nothing should move
+		err = cp.Update(connections)
+		if len(cp.live) != 1 {
+			t.Errorf("Expected no connections to be added to lists")
+		}
+
+		// Test adding a new connection that's not already present
+		connections = append(connections, &Connection{URL: &url.URL{Scheme: "http", Host: "foo12"}})
+		err = cp.Update(connections)
+		if len(cp.live) != 2 {
+			t.Errorf("Expected the new connection to be added to live list")
+		}
+		cp.resurrect(cp.dead[0], false)
+
+		// Test updating with an empty list of connections
+		connections = []*Connection{}
+		err = cp.Update(connections)
+		if len(cp.live) != 3 {
+			t.Errorf("Expected connections to be untouched after empty update")
+		}
+	})
+
+	t.Run("Update connection pool with discovery", func(t *testing.T) {
+		cp := &statusConnectionPool{
+			live:     initConnList(),
+			selector: &roundRobinSelector{curr: -1},
+		}
+
+		connections := []*Connection{
+			{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+			{URL: &url.URL{Scheme: "http", Host: "foo3"}},
+		}
+
+		conn, err := cp.Next()
+		if err != nil {
+			t.Errorf("unexpected error: %s", err)
+		}
+		if conn.URL.Host != "foo1" {
+			t.Errorf("Unexpected host: %s", conn.URL.Host)
+		}
+
+		// Update happens between Next and OnFailure
+		cp.Update(connections)
+
+		// conn fails, doesn't exist in live list anymore
+		err = cp.OnFailure(conn)
+		if err == nil {
+			t.Errorf("OnFailure() returned an unexpected error")
+		}
+
+		if len(cp.dead) != 0 {
+			t.Errorf("OnFailure() should not add unknown live connections to dead list")
+		}
 	})
 }
