@@ -416,6 +416,21 @@ func TestUpdateConnectionPool(t *testing.T) {
 		}
 	})
 
+	t.Run("Update connection removes unknown dead connections", func(t *testing.T) {
+		// we start with a bar1 host which shouldn't be there
+		pool := &statusConnectionPool{
+			live: initConnList(),
+			dead: []*Connection{
+				{URL: &url.URL{Scheme: "http", Host: "bar1"}},
+			},
+		}
+
+		pool.Update(initConnList())
+		if len(pool.dead) != 0 {
+			t.Errorf("Expected no dead connections, got: %s", pool.dead)
+		}
+	})
+
 	t.Run("Update connection pool with dead connections", func(t *testing.T) {
 		pool := &statusConnectionPool{live: initConnList()}
 

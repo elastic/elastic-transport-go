@@ -232,17 +232,28 @@ func (cp *statusConnectionPool) Update(connections []*Connection) error {
 				break
 			}
 		}
-		for _, dead := range cp.dead {
-			if cp.live[i].Cmp(dead) {
-				found = false
-				break
-			}
-		}
 
 		if !found {
 			// Remove item; https://github.com/golang/go/wiki/SliceTricks
 			copy(cp.live[i:], cp.live[i+1:])
 			cp.live = cp.live[:len(cp.live)-1]
+			i--
+		}
+	}
+
+	// Remove hosts that are no longer in the dead list of connections
+	for i := 0; i < len(cp.dead); i++ {
+		found := false
+		for _, c := range connections {
+			if cp.dead[i].Cmp(c) {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			copy(cp.dead[i:], cp.dead[i+1:])
+			cp.dead = cp.dead[:len(cp.dead)-1]
 			i--
 		}
 	}
