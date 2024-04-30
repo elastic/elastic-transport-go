@@ -215,7 +215,7 @@ func TestDiscovery(t *testing.T) {
 				fields{
 					Nodes: map[string]Node{
 						"es1": {
-							URL: "http://es1:9200",
+							URL: "es1:9200",
 							Roles: []string{
 								"data",
 								"data_cold",
@@ -231,7 +231,7 @@ func TestDiscovery(t *testing.T) {
 							},
 						},
 						"es2": {
-							URL: "http://es2:9200",
+							URL: "es2:9200",
 							Roles: []string{
 								"data",
 								"data_cold",
@@ -247,7 +247,7 @@ func TestDiscovery(t *testing.T) {
 							},
 						},
 						"es3": {
-							URL: "http://es3:9200",
+							URL: "es3:9200",
 							Roles: []string{
 								"data",
 								"data_cold",
@@ -273,13 +273,13 @@ func TestDiscovery(t *testing.T) {
 				fields{
 					Nodes: map[string]Node{
 						"es1": {
-							URL: "http://es1:9200",
+							URL: "es1:9200",
 							Roles: []string{
 								"master",
 							},
 						},
 						"es2": {
-							URL: "http://es2:9200",
+							URL: "es2:9200",
 							Roles: []string{
 								"data",
 								"data_cold",
@@ -295,7 +295,7 @@ func TestDiscovery(t *testing.T) {
 							},
 						},
 						"es3": {
-							URL: "http://es3:9200",
+							URL: "es3:9200",
 							Roles: []string{
 								"data",
 								"data_cold",
@@ -322,14 +322,14 @@ func TestDiscovery(t *testing.T) {
 				fields{
 					Nodes: map[string]Node{
 						"es1": {
-							URL: "http://es1:9200",
+							URL: "es1:9200",
 							Roles: []string{
 								"data",
 								"master",
 							},
 						},
 						"es2": {
-							URL: "http://es2:9200",
+							URL: "es2:9200",
 							Roles: []string{
 								"data",
 								"master",
@@ -345,6 +345,14 @@ func TestDiscovery(t *testing.T) {
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
+				type Http struct {
+					PublishAddress string `json:"publish_address"`
+				}
+				type nodesInfo struct {
+					Roles []string `json:"roles"`
+					Http  Http     `json:"http"`
+				}
+
 				var names []string
 				var urls []*url.URL
 				for name, node := range tt.args.Nodes {
@@ -356,13 +364,17 @@ func TestDiscovery(t *testing.T) {
 				newRoundTripper := func() http.RoundTripper {
 					return &mockTransp{
 						RoundTripFunc: func(req *http.Request) (*http.Response, error) {
-							nodes := make(map[string]map[string]nodeInfo)
-							nodes["nodes"] = make(map[string]nodeInfo)
+							nodes := make(map[string]map[string]nodesInfo)
+							nodes["nodes"] = make(map[string]nodesInfo)
 							for name, node := range tt.args.Nodes {
-								nodes["nodes"][name] = nodeInfo{Roles: node.Roles}
+								u, _ := url.Parse(node.URL)
+								nodes["nodes"][name] = nodesInfo{
+									Roles: node.Roles,
+									Http:  Http{PublishAddress: u.String()},
+								}
 							}
 
-							b, _ := json.Marshal(nodes)
+							b, _ := json.MarshalIndent(nodes, "", "    ")
 
 							return &http.Response{
 								Status:        "200 OK",
