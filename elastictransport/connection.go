@@ -66,7 +66,9 @@ type Connection struct {
 
 func (c *Connection) Cmp(connection *Connection) bool {
 	if c.URL.Hostname() == connection.URL.Hostname() {
-		return c.URL.Port() == connection.URL.Port()
+		if c.URL.Port() == connection.URL.Port() {
+			return c.URL.Path == connection.URL.Path
+		}
 	}
 	return false
 }
