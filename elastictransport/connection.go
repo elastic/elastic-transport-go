@@ -219,6 +219,10 @@ func (cp *statusConnectionPool) OnFailure(c *Connection) error {
 // Update merges the existing live and dead connections with the latest nodes discovered from the cluster.
 // ConnectionPool must be locked before calling.
 func (cp *statusConnectionPool) Update(connections []*Connection) error {
+	if len(connections) == 0 {
+		return errors.New("no connections provided, connection pool left untouched")
+	}
+
 	// Remove hosts that are no longer in the new list of connections
 	for i := 0; i < len(cp.live); i++ {
 		found := false

@@ -109,7 +109,9 @@ func (c *Client) DiscoverNodes() error {
 		if p, ok := c.pool.(UpdatableConnectionPool); ok {
 			err = p.Update(conns)
 			if err != nil {
-				return err
+				if debugLogger != nil {
+					debugLogger.Logf("Error updating pool: %s\n", err)
+				}
 			}
 		} else {
 			c.pool, err = NewConnectionPool(conns, c.selector)
