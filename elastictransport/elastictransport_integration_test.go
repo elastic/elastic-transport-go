@@ -30,6 +30,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 )
@@ -70,6 +71,65 @@ func TestTransportRetries(t *testing.T) {
 			res, err := transport.Perform(req)
 			if err != nil {
 				t.Fatalf("Unexpected error: %s", err)
+			}
+
+			if body, _ := req.GetBody(); body == nil || isEmptyReader(body) {
+				t.Fatal("request body should not be consumed by transport.Perform")
+			}
+
+			body, _ := ioutil.ReadAll(res.Body)
+
+			fmt.Println("> GET", req.URL)
+			fmt.Printf("< %s (tries: %d)\n", bytes.TrimSpace(body), counter)
+
+			if counter != 4 {
+				t.Errorf("Unexpected number of attempts, want=4, got=%d", counter)
+			}
+		})
+	}
+}
+
+func TestTransportRetriesWithCompression(t *testing.T) {
+	var counter int
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		counter++
+
+		body, _ := ioutil.ReadAll(r.Body)
+		fmt.Println("req.Body:", string(body))
+
+		http.Error(w, "FAKE 502", http.StatusBadGateway)
+	}))
+	serverURL, _ := url.Parse(server.URL)
+
+	transport, _ := elastictransport.New(elastictransport.Config{
+		URLs: []*url.URL{
+			serverURL,
+		},
+		CompressRequestBody: true,
+	})
+
+	bodies := []io.Reader{
+		strings.NewReader(`FAKE`),
+		strings.NewReader(`FAKE`),
+	}
+
+	for _, body := range bodies {
+		t.Run(fmt.Sprintf("Reset the %T request body", body), func(t *testing.T) {
+			counter = 0
+
+			req, err := http.NewRequest("GET", "/", body)
+			if err != nil {
+				t.Fatalf("Unexpected error: %s", err)
+			}
+
+			res, err := transport.Perform(req)
+			if err != nil {
+				t.Fatalf("Unexpected error: %s", err)
+			}
+
+			if body, _ := req.GetBody(); body == nil || isEmptyReader(body) {
+				t.Fatal("request body should not be consumed by transport.Perform")
 			}
 
 			body, _ := ioutil.ReadAll(res.Body)
@@ -150,6 +210,10 @@ func TestTransportCompression(t *testing.T) {
 		t.Fatalf("Unexpected error, cannot POST payload: %v", err)
 	}
 
+	if body, _ := req.GetBody(); body == nil || isEmptyReader(body) {
+		t.Fatal("request body should not be consumed by transport.Perform")
+	}
+
 	if res.StatusCode != http.StatusCreated {
 		t.Fatalf("Unexpected StatusCode, expected 201, got: %v", res.StatusCode)
 	}
@@ -159,4 +223,9 @@ func TestTransportCompression(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error, cannot DELETE %s: %v", indexName, err)
 	}
+}
+
+func isEmptyReader(r io.Reader) bool {
+	_, err := iotest.OneByteReader(r).Read(make([]byte, 1))
+	return err == io.EOF
 }
