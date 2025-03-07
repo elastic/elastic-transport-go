@@ -20,6 +20,7 @@ package elastictransport
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -60,11 +61,23 @@ type Instrumented interface {
 type Config struct {
 	UserAgent string
 
-	URLs         []*url.URL
-	Username     string
-	Password     string
-	APIKey       string
-	ServiceToken string
+	URLs []*url.URL
+
+	// APIKeyProvider provides an API Key upon success.
+	// In the event of error, the static APIKey, if provided, shall be used before ServiceToken.
+	APIKeyProvider func(context.Context) (apiKey string, err error)
+	APIKey         string
+
+	// ServiceTokenProvider provides a service token upon success.
+	// In the event of error, the static ServiceToken, if provided, shall be used before Username and Password.
+	ServiceTokenProvider func(context.Context) (serviceToken string, err error)
+	ServiceToken         string
+
+	// BasicAuthProvider provides username and password upon success.
+	// In the event of error, the provided static Username and Password shall be used.
+	BasicAuthProvider func(context.Context) (username string, password string, err error)
+	Username          string
+	Password          string
 
 	Header http.Header
 	CACert []byte
@@ -113,13 +126,16 @@ type Client struct {
 
 	userAgent string
 
-	urls         []*url.URL
-	username     string
-	password     string
-	apikey       string
-	servicetoken string
-	fingerprint  string
-	header       http.Header
+	urls                 []*url.URL
+	apiKeyProvider       func(context.Context) (apiKey string, err error)
+	apikey               string
+	serviceTokenProvider func(context.Context) (serviceToken string, err error)
+	servicetoken         string
+	basicAuthProvider    func(context.Context) (username string, password string, err error)
+	username             string
+	password             string
+	fingerprint          string
+	header               http.Header
 
 	retryOnStatus        []int
 	disableRetry         bool
@@ -216,12 +232,15 @@ func New(cfg Config) (*Client, error) {
 	client := Client{
 		userAgent: cfg.UserAgent,
 
-		urls:         cfg.URLs,
-		username:     cfg.Username,
-		password:     cfg.Password,
-		apikey:       cfg.APIKey,
-		servicetoken: cfg.ServiceToken,
-		header:       cfg.Header,
+		urls:                 cfg.URLs,
+		apiKeyProvider:       cfg.APIKeyProvider,
+		apikey:               cfg.APIKey,
+		serviceTokenProvider: cfg.ServiceTokenProvider,
+		servicetoken:         cfg.ServiceToken,
+		basicAuthProvider:    cfg.BasicAuthProvider,
+		username:             cfg.Username,
+		password:             cfg.Password,
+		header:               cfg.Header,
 
 		retryOnStatus:         cfg.RetryOnStatus,
 		disableRetry:          cfg.DisableRetry,
@@ -491,27 +510,37 @@ func (c *Client) setReqAuth(u *url.URL, req *http.Request) *http.Request {
 			return req
 		}
 
+		if c.apiKeyProvider != nil {
+			key, err := c.apiKeyProvider(req.Context())
+			if err == nil {
+				return setAPIKey(req, key)
+			}
+		}
+
 		if c.apikey != "" {
-			var b bytes.Buffer
-			b.Grow(len("APIKey ") + len(c.apikey))
-			b.WriteString("APIKey ")
-			b.WriteString(c.apikey)
-			req.Header.Set("Authorization", b.String())
-			return req
+			return setAPIKey(req, c.apikey)
+		}
+
+		if c.serviceTokenProvider != nil {
+			token, err := c.serviceTokenProvider(req.Context())
+			if err == nil {
+				return setToken(req, token)
+			}
 		}
 
 		if c.servicetoken != "" {
-			var b bytes.Buffer
-			b.Grow(len("Bearer ") + len(c.servicetoken))
-			b.WriteString("Bearer ")
-			b.WriteString(c.servicetoken)
-			req.Header.Set("Authorization", b.String())
-			return req
+			return setToken(req, c.servicetoken)
+		}
+
+		if c.basicAuthProvider != nil {
+			username, pw, err := c.basicAuthProvider(req.Context())
+			if err == nil {
+				return setBasicAuth(req, username, pw)
+			}
 		}
 
 		if c.username != "" && c.password != "" {
-			req.SetBasicAuth(c.username, c.password)
-			return req
+			return setBasicAuth(req, c.username, c.password)
 		}
 	}
 
@@ -562,4 +591,27 @@ func (c *Client) logRoundTrip(
 		}
 	}
 	c.logger.LogRoundTrip(req, &dupRes, err, start, dur) // errcheck exclude
+}
+
+func setAPIKey(r *http.Request, key string) *http.Request {
+	var b bytes.Buffer
+	b.Grow(len("APIKey ") + len(key))
+	b.WriteString("APIKey ")
+	b.WriteString(key)
+	r.Header.Set("Authorization", b.String())
+	return r
+}
+
+func setToken(r *http.Request, token string) *http.Request {
+	var b bytes.Buffer
+	b.Grow(len("Bearer ") + len(token))
+	b.WriteString("Bearer ")
+	b.WriteString(token)
+	r.Header.Set("Authorization", b.String())
+	return r
+}
+
+func setBasicAuth(r *http.Request, username, password string) *http.Request {
+	r.SetBasicAuth(username, password)
+	return r
 }
