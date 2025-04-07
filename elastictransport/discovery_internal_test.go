@@ -22,6 +22,7 @@ package elastictransport
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -45,11 +46,23 @@ func TestDiscovery(t *testing.T) {
 		io.Copy(w, f)
 	}
 
+	delayedHandler := func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(10 * time.Second)
+		w.WriteHeader(http.StatusOK)
+	}
+
 	srv := &http.Server{Addr: "localhost:10001", Handler: http.HandlerFunc(defaultHandler)}
+	srvDelayed := &http.Server{Addr: "localhost:10002", Handler: http.HandlerFunc(delayedHandler)}
 	srvTLS := &http.Server{Addr: "localhost:12001", Handler: http.HandlerFunc(defaultHandler)}
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			t.Errorf("Unable to start server: %s", err)
+			return
+		}
+	}()
+	go func() {
+		if err := srvDelayed.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			t.Errorf("Unable to start server: %s", err)
 			return
 		}
@@ -69,7 +82,7 @@ func TestDiscovery(t *testing.T) {
 		u, _ := url.Parse("http://" + srv.Addr)
 		tp, _ := New(Config{URLs: []*url.URL{u}})
 
-		nodes, err := tp.getNodesInfo()
+		nodes, err := tp.getNodesInfo(context.Background())
 		if err != nil {
 			t.Fatalf("ERROR: %s", err)
 		}
@@ -101,7 +114,7 @@ func TestDiscovery(t *testing.T) {
 		u, _ := url.Parse("http://" + srv.Addr)
 		tp, _ := New(Config{URLs: []*url.URL{u}})
 
-		tp.DiscoverNodes()
+		tp.DiscoverNodes(context.Background())
 
 		pool, ok := tp.pool.(*statusConnectionPool)
 		if !ok {
@@ -141,7 +154,7 @@ func TestDiscovery(t *testing.T) {
 			},
 		})
 
-		tp.DiscoverNodes()
+		tp.DiscoverNodes(context.Background())
 
 		pool, ok := tp.pool.(*statusConnectionPool)
 		if !ok {
@@ -391,7 +404,7 @@ func TestDiscovery(t *testing.T) {
 					URLs:      urls,
 					Transport: newRoundTripper(),
 				})
-				c.DiscoverNodes()
+				c.DiscoverNodes(context.Background())
 
 				pool, ok := c.pool.(*statusConnectionPool)
 				if !ok {
@@ -408,10 +421,40 @@ func TestDiscovery(t *testing.T) {
 					}
 				}
 
-				if err := c.DiscoverNodes(); (err != nil) != tt.want.wantErr {
+				if err := c.DiscoverNodes(context.Background()); (err != nil) != tt.want.wantErr {
 					t.Errorf("DiscoverNodes() error = %v, wantErr %v", err, tt.want.wantErr)
 				}
 			})
+		}
+	})
+
+	t.Run("Use context to cancel discovery", func(t *testing.T) {
+		u, _ := url.Parse("http://" + srvDelayed.Addr)
+		tp, _ := New(Config{URLs: []*url.URL{u}})
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+		defer cancel()
+
+		err := tp.DiscoverNodes(ctx)
+		if err == nil {
+			t.Errorf("Expected error, got nil")
+		}
+	})
+
+	t.Run("Use context with deadline to cancel discovery", func(t *testing.T) {
+		u, _ := url.Parse("http://" + srvDelayed.Addr)
+		tp, _ := New(Config{URLs: []*url.URL{u}})
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			cancel()
+		}()
+
+		err := tp.DiscoverNodes(ctx)
+		if err == nil {
+			t.Errorf("Expected error, got nil")
 		}
 	})
 }
