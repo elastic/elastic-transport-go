@@ -18,10 +18,9 @@
 package elastictransport
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"sort"
@@ -50,10 +49,10 @@ type nodeInfo struct {
 }
 
 // DiscoverNodes reloads the client connections by fetching information from the cluster.
-func (c *Client) DiscoverNodes(ctx context.Context) error {
+func (c *Client) DiscoverNodes() error {
 	var conns []*Connection
 
-	nodes, err := c.getNodesInfo(ctx)
+	nodes, err := c.getNodesInfo()
 	if err != nil {
 		if debugLogger != nil {
 			debugLogger.Logf("Error getting nodes info: %s\n", err)
@@ -113,7 +112,6 @@ func (c *Client) DiscoverNodes(ctx context.Context) error {
 				if debugLogger != nil {
 					debugLogger.Logf("Error updating pool: %s\n", err)
 				}
-				return err
 			}
 		} else {
 			c.pool, err = NewConnectionPool(conns, c.selector)
@@ -126,13 +124,13 @@ func (c *Client) DiscoverNodes(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
+func (c *Client) getNodesInfo() ([]nodeInfo, error) {
 	var (
 		out    []nodeInfo
 		scheme = c.urls[0].Scheme
 	)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", "/_nodes/http", nil)
+	req, err := http.NewRequest("GET", "/_nodes/http", nil)
 	if err != nil {
 		return out, err
 	}
@@ -157,7 +155,7 @@ func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
 	defer res.Body.Close()
 
 	if res.StatusCode > 200 {
-		body, _ := io.ReadAll(res.Body)
+		body, _ := ioutil.ReadAll(res.Body)
 		return out, fmt.Errorf("server error: %s: %s", res.Status, body)
 	}
 
@@ -204,18 +202,8 @@ func (c *Client) getNodeURL(node nodeInfo, scheme string) *url.URL {
 	return u
 }
 
-func (c *Client) scheduleDiscoverNodes(ctx context.Context, d time.Duration) {
-	go func() {
-		err := c.DiscoverNodes(ctx)
-		if err != nil {
-			if debugLogger != nil {
-				err := debugLogger.Logf("Error discovering nodes: %s\n", err)
-				if err != nil {
-					return
-				}
-			}
-		}
-	}()
+func (c *Client) scheduleDiscoverNodes(d time.Duration) {
+	go c.DiscoverNodes()
 
 	c.Lock()
 	defer c.Unlock()
@@ -223,6 +211,6 @@ func (c *Client) scheduleDiscoverNodes(ctx context.Context, d time.Duration) {
 		c.discoverNodesTimer.Stop()
 	}
 	c.discoverNodesTimer = time.AfterFunc(c.discoverNodesInterval, func() {
-		c.scheduleDiscoverNodes(ctx, c.discoverNodesInterval)
+		c.scheduleDiscoverNodes(c.discoverNodesInterval)
 	})
 }
