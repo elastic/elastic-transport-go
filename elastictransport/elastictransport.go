@@ -20,7 +20,6 @@ package elastictransport
 import (
 	"bytes"
 	"compress/gzip"
-	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -106,7 +105,6 @@ type Config struct {
 	ConnectionPoolFunc func([]*Connection, Selector) ConnectionPool
 
 	CertificateFingerprint string
-	DiscoveryContext       context.Context
 }
 
 // Client represents the HTTP client.
@@ -266,7 +264,7 @@ func New(cfg Config) (*Client, error) {
 
 	if client.discoverNodesInterval > 0 {
 		time.AfterFunc(client.discoverNodesInterval, func() {
-			client.scheduleDiscoverNodes(cfg.DiscoveryContext, client.discoverNodesInterval)
+			client.scheduleDiscoverNodes(client.discoverNodesInterval)
 		})
 	}
 
