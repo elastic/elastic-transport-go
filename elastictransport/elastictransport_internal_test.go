@@ -34,6 +34,7 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -917,6 +918,109 @@ func TestTransportPerformRetries(t *testing.T) {
 		}
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("Unexpected status code, wanted 200, got %d", res.StatusCode)
+		}
+	})
+}
+
+func TestTransportActiveRequest(t *testing.T) {
+	t.Run("single URL multiple calls without error", func(t *testing.T) {
+		in := make(chan any)
+		out := make(chan any)
+		tp, _ := New(Config{
+			URLs:         []*url.URL{{}},
+			DisableRetry: false,
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					out <- <-in
+					return &http.Response{Status: "MOCK"}, nil
+				},
+			},
+		})
+
+		req, _ := http.NewRequest("GET", "/abc", nil)
+
+		wg := new(sync.WaitGroup)
+		wg.Add(3)
+		for i := 0; i < 3; i++ {
+			go func() {
+				defer wg.Done()
+				_, err := tp.Perform(req)
+				if err != nil {
+					t.Fatalf("Unexpected error: %s", err)
+				}
+			}()
+
+			in <- nil
+		}
+
+		activeRequest := tp.pool.(*singleConnectionPool).connection.ActiveRequests.Load()
+		if activeRequest != 3 {
+			t.Errorf("Expected 3 active requests, got: %d", activeRequest)
+		}
+
+		for i := 0; i < 3; i++ {
+			<-out
+		}
+		wg.Wait()
+
+		activeRequest = tp.pool.(*singleConnectionPool).connection.ActiveRequests.Load()
+		if activeRequest != 0 {
+			t.Errorf("Expected 0 active requests, got: %d", activeRequest)
+		}
+	})
+
+	t.Run("multiple URL single call with error", func(t *testing.T) {
+		in := make(chan any)
+		out := make(chan any)
+		tp, _ := New(Config{
+			URLs:         []*url.URL{{}, {}, {}},
+			DisableRetry: true,
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					out <- <-in
+					return nil, errors.New("simple custom error")
+				},
+			},
+		})
+
+		connections := tp.pool.(*statusConnectionPool).connections()
+		if len(connections) != 3 {
+			t.Fatalf("Expected 3 connections, got: %d", len(connections))
+		}
+
+		req, _ := http.NewRequest("GET", "/abc", nil)
+
+		wg := new(sync.WaitGroup)
+		wg.Add(3)
+		for i := 0; i < 3; i++ {
+			go func() {
+				defer wg.Done()
+
+				_, err := tp.Perform(req)
+				if err.Error() != "simple custom error" {
+					t.Errorf("Unexpected error: %s", err)
+				}
+			}()
+
+			in <- nil
+		}
+
+		for _, conn := range connections {
+			activeRequest := conn.ActiveRequests.Load()
+			if activeRequest != 1 {
+				t.Errorf("Expected 1 active request, got: %d", activeRequest)
+			}
+		}
+		for i := 0; i < 3; i++ {
+			<-out
+		}
+		wg.Wait()
+
+		for _, conn := range connections {
+			activeRequest := conn.ActiveRequests.Load()
+			if activeRequest != 0 {
+				t.Errorf("Expected 0 active request, got: %d", activeRequest)
+			}
 		}
 	})
 }
