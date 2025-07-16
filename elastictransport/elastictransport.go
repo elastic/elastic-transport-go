@@ -431,6 +431,13 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			break
 		}
 
+		// Record metrics for retry, when enabled
+		if c.metrics != nil {
+			c.metrics.Lock()
+			c.metrics.retries++
+			c.metrics.Unlock()
+		}
+
 		// Drain and close body when retrying after response
 		if shouldCloseBody && i < c.maxRetries {
 			if res.Body != nil {
