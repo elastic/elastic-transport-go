@@ -84,7 +84,7 @@ func TestTransport(t *testing.T) {
 			},
 		})
 
-		res, err := tp.transport.RoundTrip(&http.Request{URL: &url.URL{}})
+		res, err := tp.roundTrip(&http.Request{URL: &url.URL{}})
 		if err != nil {
 			t.Fatalf("Unexpected error: %s", err)
 		}
@@ -1089,6 +1089,126 @@ func TestRequestCompression(t *testing.T) {
 			if res.Status != "MOCK" {
 				t.Errorf("Unexpected response: %+v", res)
 			}
+		})
+	}
+}
+
+func TestInterceptors(t *testing.T) {
+	tests := []struct {
+		name         string
+		interceptors []InterceptorFunc
+		transportErr error
+		assertFunc   func(t *testing.T, req *http.Request, resp *http.Response, err error)
+	}{
+		{
+			name: "No Interceptors",
+			assertFunc: func(t *testing.T, req *http.Request, resp *http.Response, err error) {
+				if err != nil {
+					t.Fatalf("Unexpected error: %s", err)
+				}
+
+				if resp.Status != "MOCK" {
+					t.Errorf("Unexpected response: %+v", resp)
+				}
+			},
+		},
+		{
+			name: "One Interceptor",
+			interceptors: []InterceptorFunc{
+				func(next RoundTripFunc) RoundTripFunc {
+					return func(req *http.Request) (*http.Response, error) {
+						req.Header.Add("X-Intercept", "true")
+						return next(req)
+					}
+				},
+			},
+			assertFunc: func(t *testing.T, req *http.Request, resp *http.Response, err error) {
+				if err != nil {
+					t.Fatalf("Unexpected error: %s", err)
+				}
+				if resp.Status != "MOCK" {
+					t.Errorf("Unexpected response: %+v", resp)
+				}
+				if req.Header.Get("X-Intercept") != "true" {
+					t.Errorf("Unexpected X-Intercept header: %+v", req.Header.Get("X-Intercept"))
+				}
+			},
+		},
+		{
+			name: "One Interceptor Error",
+			interceptors: []InterceptorFunc{
+				func(next RoundTripFunc) RoundTripFunc {
+					return func(req *http.Request) (*http.Response, error) {
+						req.Header.Add("X-Intercept", "true")
+						return next(req)
+					}
+				},
+			},
+			transportErr: fmt.Errorf("error"),
+			assertFunc: func(t *testing.T, req *http.Request, resp *http.Response, err error) {
+				if err == nil {
+					t.Fatal("Unexpected success")
+				}
+				if resp.Status != "MOCK" {
+					t.Errorf("Unexpected response: %+v", resp)
+				}
+				if req.Header.Get("X-Intercept") != "true" {
+					t.Errorf("Unexpected X-Intercept header: %+v", req.Header.Get("X-Intercept"))
+				}
+			},
+		},
+		{
+			name: "Multiple Interceptors",
+			interceptors: []InterceptorFunc{
+				func(next RoundTripFunc) RoundTripFunc {
+					return func(req *http.Request) (*http.Response, error) {
+						req.Header.Add("X-Intercept", "true")
+						return next(req)
+					}
+				},
+				func(next RoundTripFunc) RoundTripFunc {
+					return func(req *http.Request) (*http.Response, error) {
+						req.Header.Add("X-Intercept", "true")
+						return next(req)
+					}
+				},
+				func(next RoundTripFunc) RoundTripFunc {
+					return func(req *http.Request) (*http.Response, error) {
+						req.Header.Add("X-Intercept", "true")
+						return next(req)
+					}
+				},
+			},
+			assertFunc: func(t *testing.T, req *http.Request, resp *http.Response, err error) {
+				if err != nil {
+					t.Fatalf("Unexpected error: %s", err)
+				}
+				if resp.Status != "MOCK" {
+					t.Errorf("Unexpected response: %+v", resp)
+				}
+				if len(req.Header.Values("X-Intercept")) != 3 {
+					t.Errorf("Unexpected X-Intercept header: %+v", req.Header.Values("X-Intercept"))
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			u, _ := url.Parse("https://foo.com/bar")
+			tp, _ := New(Config{
+				URLs:         []*url.URL{u},
+				Interceptors: test.interceptors,
+				Transport: &mockTransp{
+					RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+						return &http.Response{Status: "MOCK"}, test.transportErr
+					},
+				}})
+
+			req, _ := http.NewRequest("GET", "/abc", nil)
+
+			res, err := tp.Perform(req)
+			test.assertFunc(t, req, res, err)
 		})
 	}
 }
