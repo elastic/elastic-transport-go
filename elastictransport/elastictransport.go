@@ -107,6 +107,8 @@ type Config struct {
 
 	CertificateFingerprint string
 
+	// Interceptors is an array of functions that can mutate the *http.Request / *http.Response on each call to the http.RoundTripper.
+	// This array is used on instantiation of the transport only and cannot be mutated after transport creation.
 	Interceptors []InterceptorFunc
 }
 
