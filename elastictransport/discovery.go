@@ -159,7 +159,7 @@ func (c *Client) getNodesInfo() ([]nodeInfo, error) {
 	c.setReqUserAgent(req)
 	c.setReqGlobalHeader(req)
 
-	res, err := c.transport.RoundTrip(req)
+	res, err := c.roundTrip(req)
 	if err != nil {
 		return out, err
 	}

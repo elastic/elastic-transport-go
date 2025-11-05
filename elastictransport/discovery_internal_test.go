@@ -97,6 +97,50 @@ func TestDiscovery(t *testing.T) {
 		}
 	})
 
+	t.Run("getNodesInfo() with interceptor", func(t *testing.T) {
+		u, _ := url.Parse("http://" + srv.Addr)
+		interceptorCalled := false
+		tp, _ := New(Config{URLs: []*url.URL{u}, Interceptors: []InterceptorFunc{
+			func(next RoundTripFunc) RoundTripFunc {
+				return func(request *http.Request) (*http.Response, error) {
+					interceptorCalled = true
+					return next(request)
+				}
+			},
+		}})
+
+		nodes, err := tp.getNodesInfo()
+		if err != nil {
+			t.Fatalf("ERROR: %s", err)
+		}
+		fmt.Printf("NodesInfo: %+v\n", nodes)
+
+		if interceptorCalled != true {
+			t.Errorf("Interceptor was not called")
+		}
+
+		if len(nodes) != 3 {
+			t.Errorf("Unexpected number of nodes, want=3, got=%d", len(nodes))
+		}
+
+		for _, node := range nodes {
+			switch node.Name {
+			case "es1":
+				if node.URL.String() != "http://127.0.0.1:10001" {
+					t.Errorf("Unexpected URL: %s", node.URL.String())
+				}
+			case "es2":
+				if node.URL.String() != "http://localhost:10002" {
+					t.Errorf("Unexpected URL: %s", node.URL.String())
+				}
+			case "es3":
+				if node.URL.String() != "http://127.0.0.1:10003" {
+					t.Errorf("Unexpected URL: %s", node.URL.String())
+				}
+			}
+		}
+	})
+
 	t.Run("DiscoverNodes()", func(t *testing.T) {
 		u, _ := url.Parse("http://" + srv.Addr)
 		tp, _ := New(Config{URLs: []*url.URL{u}})

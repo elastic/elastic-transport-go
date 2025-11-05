@@ -106,6 +106,10 @@ type Config struct {
 	ConnectionPoolFunc func([]*Connection, Selector) ConnectionPool
 
 	CertificateFingerprint string
+
+	// Interceptors is an array of functions that can mutate the *http.Request / *http.Response on each call to the http.RoundTripper.
+	// This array is used on instantiation of the transport only and cannot be mutated after transport creation.
+	Interceptors []InterceptorFunc
 }
 
 // Client represents the HTTP client.
@@ -146,6 +150,8 @@ type Client struct {
 	selector  Selector
 	pool      ConnectionPool
 	poolFunc  func([]*Connection, Selector) ConnectionPool
+
+	interceptor InterceptorFunc
 }
 
 // New creates new transport client.
@@ -241,6 +247,10 @@ func New(cfg Config) (*Client, error) {
 		poolFunc:  cfg.ConnectionPoolFunc,
 
 		instrumentation: cfg.Instrumentation,
+	}
+
+	if len(cfg.Interceptors) > 0 {
+		client.interceptor = mergeInterceptors(cfg.Interceptors)
 	}
 
 	if cfg.DiscoverNodeTimeout != nil {
@@ -371,7 +381,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 
 		// Set up time measures and execute the request
 		start := time.Now().UTC()
-		res, err = c.transport.RoundTrip(req)
+		res, err = c.roundTrip(req)
 		dur := time.Since(start)
 
 		// Log request and response
@@ -472,6 +482,13 @@ func (c *Client) URLs() []*url.URL {
 
 func (c *Client) InstrumentationEnabled() Instrumentation {
 	return c.instrumentation
+}
+
+func (c *Client) roundTrip(req *http.Request) (*http.Response, error) {
+	if c.interceptor == nil {
+		return c.transport.RoundTrip(req)
+	}
+	return c.interceptor(c.transport.RoundTrip)(req)
 }
 
 func (c *Client) setReqURL(u *url.URL, req *http.Request) *http.Request {
