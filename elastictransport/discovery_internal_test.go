@@ -65,16 +65,8 @@ func TestDiscovery(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	t.Run("getNodesInfo()", func(t *testing.T) {
-		u, _ := url.Parse("http://" + srv.Addr)
-		tp, _ := New(Config{URLs: []*url.URL{u}})
-
-		nodes, err := tp.getNodesInfo()
-		if err != nil {
-			t.Fatalf("ERROR: %s", err)
-		}
-		fmt.Printf("NodesInfo: %+v\n", nodes)
-
+	assertNodeInfoSuccess := func(t *testing.T, nodes []nodeInfo) {
+		t.Helper()
 		if len(nodes) != 3 {
 			t.Errorf("Unexpected number of nodes, want=3, got=%d", len(nodes))
 		}
@@ -95,6 +87,19 @@ func TestDiscovery(t *testing.T) {
 				}
 			}
 		}
+	}
+
+	t.Run("getNodesInfo()", func(t *testing.T) {
+		u, _ := url.Parse("http://" + srv.Addr)
+		tp, _ := New(Config{URLs: []*url.URL{u}})
+
+		nodes, err := tp.getNodesInfo(t.Context())
+		if err != nil {
+			t.Fatalf("ERROR: %s", err)
+		}
+		fmt.Printf("NodesInfo: %+v\n", nodes)
+
+		assertNodeInfoSuccess(t, nodes)
 	})
 
 	t.Run("getNodesInfo() with interceptor", func(t *testing.T) {
@@ -109,7 +114,7 @@ func TestDiscovery(t *testing.T) {
 			},
 		}})
 
-		nodes, err := tp.getNodesInfo()
+		nodes, err := tp.getNodesInfo(t.Context())
 		if err != nil {
 			t.Fatalf("ERROR: %s", err)
 		}
@@ -119,33 +124,14 @@ func TestDiscovery(t *testing.T) {
 			t.Errorf("Interceptor was not called")
 		}
 
-		if len(nodes) != 3 {
-			t.Errorf("Unexpected number of nodes, want=3, got=%d", len(nodes))
-		}
-
-		for _, node := range nodes {
-			switch node.Name {
-			case "es1":
-				if node.URL.String() != "http://127.0.0.1:10001" {
-					t.Errorf("Unexpected URL: %s", node.URL.String())
-				}
-			case "es2":
-				if node.URL.String() != "http://localhost:10002" {
-					t.Errorf("Unexpected URL: %s", node.URL.String())
-				}
-			case "es3":
-				if node.URL.String() != "http://127.0.0.1:10003" {
-					t.Errorf("Unexpected URL: %s", node.URL.String())
-				}
-			}
-		}
+		assertNodeInfoSuccess(t, nodes)
 	})
 
 	t.Run("DiscoverNodes()", func(t *testing.T) {
 		u, _ := url.Parse("http://" + srv.Addr)
 		tp, _ := New(Config{URLs: []*url.URL{u}})
 
-		tp.DiscoverNodes()
+		_ = tp.DiscoverNodesContext(t.Context())
 
 		pool, ok := tp.pool.(*statusConnectionPool)
 		if !ok {
@@ -185,7 +171,7 @@ func TestDiscovery(t *testing.T) {
 			},
 		})
 
-		tp.DiscoverNodes()
+		_ = tp.DiscoverNodesContext(t.Context())
 
 		pool, ok := tp.pool.(*statusConnectionPool)
 		if !ok {
@@ -435,7 +421,7 @@ func TestDiscovery(t *testing.T) {
 					URLs:      urls,
 					Transport: newRoundTripper(),
 				})
-				c.DiscoverNodes()
+				_ = c.DiscoverNodesContext(t.Context())
 
 				pool, ok := c.pool.(*statusConnectionPool)
 				if !ok {
@@ -452,7 +438,7 @@ func TestDiscovery(t *testing.T) {
 					}
 				}
 
-				if err := c.DiscoverNodes(); (err != nil) != tt.want.wantErr {
+				if err := c.DiscoverNodesContext(t.Context()); (err != nil) != tt.want.wantErr {
 					t.Errorf("DiscoverNodes() error = %v, wantErr %v", err, tt.want.wantErr)
 				}
 			})

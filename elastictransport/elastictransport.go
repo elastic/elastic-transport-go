@@ -20,6 +20,7 @@ package elastictransport
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -34,6 +35,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -54,6 +56,11 @@ type Interface interface {
 // Instrumented allows to retrieve the current transport Instrumentation
 type Instrumented interface {
 	InstrumentationEnabled() Instrumentation
+}
+
+// Closeable allows graceful closing of the underlying transport
+type Closeable interface {
+	Close(context.Context) error
 }
 
 // Config represents the configuration of HTTP client.
@@ -134,8 +141,8 @@ type Client struct {
 	retryOnError          func(*http.Request, error) bool
 	retryBackoff          func(attempt int) time.Duration
 	discoverNodesInterval time.Duration
-	discoverNodesTimer    *time.Timer
 	discoverNodeTimeout   *time.Duration
+	discoverWaitGroup     sync.WaitGroup
 
 	compressRequestBody      bool
 	compressRequestBodyLevel int
@@ -152,6 +159,10 @@ type Client struct {
 	poolFunc  func([]*Connection, Selector) ConnectionPool
 
 	interceptor InterceptorFunc
+
+	// closeC when closed signals the client to close
+	closeC    chan struct{}
+	closeDone uint32
 }
 
 // New creates new transport client.
@@ -247,6 +258,8 @@ func New(cfg Config) (*Client, error) {
 		poolFunc:  cfg.ConnectionPoolFunc,
 
 		instrumentation: cfg.Instrumentation,
+
+		closeC: make(chan struct{}),
 	}
 
 	if len(cfg.Interceptors) > 0 {
@@ -279,9 +292,7 @@ func New(cfg Config) (*Client, error) {
 	}
 
 	if client.discoverNodesInterval > 0 {
-		time.AfterFunc(client.discoverNodesInterval, func() {
-			client.scheduleDiscoverNodes(client.discoverNodesInterval)
-		})
+		client.scheduleDiscoverNodes(client.discoverNodesInterval)
 	}
 
 	if client.compressRequestBodyLevel == 0 {
@@ -299,6 +310,10 @@ func New(cfg Config) (*Client, error) {
 
 // Perform executes the request and returns a response or error.
 func (c *Client) Perform(req *http.Request) (*http.Response, error) {
+	if c.isClosed() {
+		return nil, ErrClosed
+	}
+
 	var (
 		res *http.Response
 		err error
@@ -586,3 +601,81 @@ func (c *Client) logRoundTrip(
 	}
 	c.logger.LogRoundTrip(req, &dupRes, err, start, dur) // errcheck exclude
 }
+
+func (c *Client) isClosed() bool {
+	select {
+	case <-c.closeC:
+		return true
+	default:
+		return false
+	}
+}
+
+// Close marks the elastictransport.Client as closed. After which it is no longer possible to perform requests.
+// It will wait until graceful shutdown of the client or the context.Context deadline is reached.
+// Close should only be called once, otherwise it will return ErrAlreadyClosed.
+func (c *Client) Close(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if atomic.CompareAndSwapUint32(&c.closeDone, 0, 1) {
+		close(c.closeC)
+		wg := sync.WaitGroup{}
+		errChan := make(chan error, 1)
+
+		if closeable, ok := c.pool.(CloseableConnectionPool); ok {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer close(errChan)
+				err := closeable.Close(ctx)
+				if err != nil {
+					errChan <- fmt.Errorf("failed to close connection pool: %w", err)
+				}
+			}()
+		}
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.discoverWaitGroup.Wait()
+		}()
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			wg.Wait()
+		}()
+
+		select {
+		case <-done:
+			return drainErrChan(errChan)
+		case <-ctx.Done():
+			return errors.Join(ctx.Err(), drainErrChan(errChan))
+		}
+	} else {
+		return ErrAlreadyClosed
+	}
+}
+
+func drainErrChan(ch <-chan error) error {
+	var err error
+	for {
+		select {
+		case errC, open := <-ch:
+			if !open {
+				return err
+			}
+			err = errors.Join(err, errC)
+		default:
+			return err
+		}
+	}
+}
+
+// ErrClosed is returned when the transport is closed.
+var ErrClosed = errors.New("elastictransport is closed")
+
+// ErrAlreadyClosed is returned when the transport is already closed and cannot be closed again.
+var ErrAlreadyClosed = errors.New("elastictransport is already closed")
