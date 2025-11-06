@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -103,7 +104,7 @@ func NewConnectionPool(conns []*Connection, selector Selector) (ConnectionPool, 
 	if selector == nil {
 		selector = &roundRobinSelector{curr: -1}
 	}
-	return &statusConnectionPool{live: conns, selector: selector}, nil
+	return &statusConnectionPool{live: slices.Clone(conns), selector: selector}, nil
 }
 
 // Next returns the connection from pool.
@@ -133,7 +134,7 @@ func (cp *statusConnectionPool) Next() (*Connection, error) {
 	} else if len(cp.dead) > 0 {
 		// No live connection is available, resurrect one of the dead ones.
 		c := cp.dead[len(cp.dead)-1]
-		cp.dead = cp.dead[:len(cp.dead)-1]
+		cp.dead = slices.Delete(cp.dead, len(cp.dead)-1, len(cp.dead))
 		c.Lock()
 		defer c.Unlock()
 		cp.resurrect(c, false)
@@ -209,9 +210,7 @@ func (cp *statusConnectionPool) OnFailure(c *Connection) error {
 		return res
 	})
 
-	// Remove item; https://github.com/golang/go/wiki/SliceTricks
-	copy(cp.live[index:], cp.live[index+1:])
-	cp.live = cp.live[:len(cp.live)-1]
+	cp.live = slices.Delete(cp.live, index, index+1)
 
 	return nil
 }
@@ -234,9 +233,7 @@ func (cp *statusConnectionPool) Update(connections []*Connection) error {
 		}
 
 		if !found {
-			// Remove item; https://github.com/golang/go/wiki/SliceTricks
-			copy(cp.live[i:], cp.live[i+1:])
-			cp.live = cp.live[:len(cp.live)-1]
+			cp.live = slices.Delete(cp.live, i, i+1)
 			i--
 		}
 	}
@@ -252,8 +249,7 @@ func (cp *statusConnectionPool) Update(connections []*Connection) error {
 		}
 
 		if !found {
-			copy(cp.dead[i:], cp.dead[i+1:])
-			cp.dead = cp.dead[:len(cp.dead)-1]
+			cp.dead = slices.Delete(cp.dead, i, i+1)
 			i--
 		}
 	}
@@ -321,9 +317,7 @@ func (cp *statusConnectionPool) resurrect(c *Connection, removeDead bool) error 
 			}
 		}
 		if index >= 0 {
-			// Remove item; https://github.com/golang/go/wiki/SliceTricks
-			copy(cp.dead[index:], cp.dead[index+1:])
-			cp.dead = cp.dead[:len(cp.dead)-1]
+			cp.dead = slices.Delete(cp.dead, index, index+1)
 		}
 	}
 

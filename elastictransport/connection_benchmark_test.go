@@ -25,6 +25,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"testing"
 
 	_ "net/http/pprof"
@@ -100,7 +101,7 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 
 	b.Run("Next()", func(b *testing.B) {
 		pool := &statusConnectionPool{
-			live:     conns,
+			live:     slices.Clone(conns),
 			selector: &roundRobinSelector{curr: -1},
 		}
 
@@ -140,7 +141,7 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 
 	b.Run("OnFailure()", func(b *testing.B) {
 		pool := &statusConnectionPool{
-			live:     conns,
+			live:     slices.Clone(conns),
 			selector: &roundRobinSelector{curr: -1},
 		}
 
@@ -192,7 +193,7 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 
 	b.Run("OnSuccess()", func(b *testing.B) {
 		pool := &statusConnectionPool{
-			live:     conns,
+			live:     slices.Clone(conns),
 			selector: &roundRobinSelector{curr: -1},
 		}
 
@@ -244,7 +245,7 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 
 	b.Run("resurrect()", func(b *testing.B) {
 		pool := &statusConnectionPool{
-			live:     conns,
+			live:     slices.Clone(conns),
 			selector: &roundRobinSelector{curr: -1},
 		}
 
