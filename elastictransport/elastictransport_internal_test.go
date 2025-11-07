@@ -830,7 +830,7 @@ func TestTransportPerformRetries(t *testing.T) {
 		req = req.WithContext(ctx)
 
 		_, err := tp.Perform(req)
-		if err != context.DeadlineExceeded {
+		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("expected context.DeadlineExceeded, got %s", err)
 		}
 		if i != 1 {
@@ -1189,4 +1189,225 @@ func TestInterceptors(t *testing.T) {
 			test.assertFunc(t, req, res, err)
 		})
 	}
+}
+
+func TestClose(t *testing.T) {
+	t.Run("Close", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{Status: "MOCK"}, nil
+				},
+			}})
+		if err := tp.Close(t.Context()); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		// Closing a second time returns ErrAlreadyClosed.
+		if err := tp.Close(t.Context()); err == nil {
+			t.Fatal("Expected ErrAlreadyClosed")
+		} else if !errors.Is(err, ErrAlreadyClosed) {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+	})
+
+	t.Run("Close with nil context", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return nil, fmt.Errorf("error")
+				},
+			}})
+		if err := tp.Close(nil); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+	})
+
+	t.Run("Close should timeout", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{Status: "MOCK"}, nil
+				},
+			}})
+
+		tp.discoverWaitGroup.Add(1)
+
+		ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+		defer cancel()
+		if err := tp.Close(ctx); err == nil {
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("Expected context.DeadlineExceeded, got %s", err)
+			}
+		}
+	})
+
+	t.Run("Close cancels future scheduleDiscoverNodes", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					<-req.Context().Done()
+					return nil, req.Context().Err()
+				},
+			}})
+
+		tp.scheduleDiscoverNodes(1 * time.Hour)
+		if err := tp.Close(t.Context()); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		tp.discoverWaitGroup.Wait()
+	})
+
+	t.Run("Close cancels running scheduleDiscoverNodes", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		running := make(chan struct{})
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					close(running)
+					<-req.Context().Done()
+					return nil, req.Context().Err()
+				},
+			}})
+
+		tp.scheduleDiscoverNodes(10 * time.Millisecond)
+		<-running
+		if err := tp.Close(t.Context()); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		tp.discoverWaitGroup.Wait()
+	})
+
+	t.Run("Close cancels running scheduleDiscoverNodes unresponsive", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		running := make(chan struct{})
+		continueRunning := make(chan struct{})
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					close(running)
+					<-continueRunning
+					<-req.Context().Done()
+					return nil, req.Context().Err()
+				},
+			}})
+
+		tp.scheduleDiscoverNodes(10 * time.Millisecond)
+		<-running
+
+		ctx, cancel := context.WithTimeout(t.Context(), 1*time.Millisecond)
+		defer cancel()
+		if err := tp.Close(ctx); err == nil {
+			t.Fatalf("Expected error, got %s", err)
+		} else if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Expected context.DeadlineExceeded, got %s", err)
+		}
+
+		close(continueRunning)
+		tp.discoverWaitGroup.Wait()
+	})
+
+	t.Run("Perform should return error if transport is closed", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return nil, fmt.Errorf("error")
+				},
+			}})
+		_ = tp.Close(t.Context())
+		req, _ := http.NewRequest("GET", "/abc", nil)
+
+		_, err := tp.Perform(req)
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		} else if !errors.Is(err, ErrClosed) {
+			t.Fatalf("Expected ErrClosed, got %s", err)
+		}
+	})
+
+	t.Run("Close should close CloseableConnectionPool", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		calledCloseConnectionPool := false
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return nil, fmt.Errorf("error")
+				},
+			},
+			ConnectionPoolFunc: func(connections []*Connection, selector Selector) ConnectionPool {
+				return &mockConnectionPool{func(_ context.Context) error {
+					calledCloseConnectionPool = true
+					return nil
+				}}
+			},
+		})
+		err := tp.Close(t.Context())
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if !calledCloseConnectionPool {
+			t.Fatalf("Expected Close to be called on CloseableConnectionPool")
+		}
+	})
+
+	t.Run("Close should error if CloseableConnectionPool fails to close", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return nil, fmt.Errorf("error")
+				},
+			},
+			ConnectionPoolFunc: func(connections []*Connection, selector Selector) ConnectionPool {
+				return &mockConnectionPool{func(_ context.Context) error {
+					return fmt.Errorf("mock error")
+				}}
+			},
+		})
+		err := tp.Close(t.Context())
+		if err == nil {
+			t.Fatalf("Expected error, got nil")
+		} else if !strings.Contains(err.Error(), "mock error") {
+			t.Fatalf("Expected mock error, got %s", err)
+		}
+	})
+}
+
+type mockConnectionPool struct {
+	CloseFunc func(context.Context) error
+}
+
+func (m *mockConnectionPool) Next() (*Connection, error) {
+	return nil, nil
+}
+
+func (m *mockConnectionPool) OnSuccess(*Connection) error {
+	return nil
+}
+
+func (m *mockConnectionPool) OnFailure(*Connection) error {
+	return nil
+}
+
+func (m *mockConnectionPool) URLs() []*url.URL {
+	return nil
+}
+
+func (m *mockConnectionPool) Close(ctx context.Context) error {
+	return m.CloseFunc(ctx)
 }
