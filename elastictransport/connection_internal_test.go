@@ -21,9 +21,12 @@
 package elastictransport
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 )
@@ -549,6 +552,145 @@ func TestUpdateConnectionPool(t *testing.T) {
 
 		if len(cp.dead) != 0 {
 			t.Errorf("OnFailure() should not add unknown live connections to dead list")
+		}
+	})
+}
+
+func TestCloseConnectionPool(t *testing.T) {
+	t.Run("CloseConnectionPool", func(t *testing.T) {
+		pool := &statusConnectionPool{
+			live: []*Connection{
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+			},
+			selector: &roundRobinSelector{curr: -1},
+			closeC:   make(chan struct{}),
+		}
+
+		err := pool.Close(t.Context())
+		if err != nil {
+			t.Errorf("Close() returned an error: %v", err)
+		}
+
+		err = pool.Close(t.Context())
+		if err == nil {
+			t.Errorf("Second call to Close() should return an error")
+		} else if !strings.Contains(err.Error(), "already closed") {
+			t.Errorf("Unexpected error: %v", err)
+		}
+	})
+
+	t.Run("CloseConnectionPool isClosed", func(t *testing.T) {
+		pool := &statusConnectionPool{
+			live: []*Connection{
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+			},
+			selector: &roundRobinSelector{curr: -1},
+			closeC:   make(chan struct{}),
+		}
+
+		if pool.isClosed() {
+			t.Errorf("isClosed() returned true before closing")
+		}
+		err := pool.Close(t.Context())
+		if err != nil {
+			t.Errorf("Close() returned an error: %v", err)
+		}
+		if !pool.isClosed() {
+			t.Errorf("isClosed() returned false after close")
+		}
+	})
+
+	t.Run("CloseConnectionPool abort scheduled resurrect", func(t *testing.T) {
+		deadConn := &Connection{URL: &url.URL{Scheme: "http", Host: "foo3"}, IsDead: true, DeadSince: time.Now()}
+
+		pool := &statusConnectionPool{
+			live: []*Connection{
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+			},
+			dead: []*Connection{
+				deadConn,
+			},
+			selector: &roundRobinSelector{curr: -1},
+			closeC:   make(chan struct{}),
+		}
+
+		pool.scheduleResurrect(deadConn)
+
+		err := pool.Close(t.Context())
+		if err != nil {
+			t.Errorf("Close() returned an error: %v", err)
+		}
+
+		if count := len(pool.live); count != 2 {
+			t.Errorf("Should have two live connections after Close(), got %d", count)
+		}
+
+		if count := len(pool.dead); count != 1 {
+			t.Errorf("Should have one dead connection after Close(), got %d", count)
+		}
+	})
+
+	t.Run("CloseConnectionPool nil context", func(t *testing.T) {
+		pool := &statusConnectionPool{
+			live: []*Connection{
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+			},
+			selector: &roundRobinSelector{curr: -1},
+			closeC:   make(chan struct{}),
+		}
+		err := pool.Close(nil)
+		if err != nil {
+			t.Errorf("Close() returned an error: %v", err)
+		}
+	})
+
+	t.Run("CloseConnectionPool should timeout", func(t *testing.T) {
+		pool := &statusConnectionPool{
+			live: []*Connection{
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+			},
+			selector: &roundRobinSelector{curr: -1},
+			closeC:   make(chan struct{}),
+		}
+		// Add to waitgroup that will never be resolved
+		pool.resurrectWaitGroup.Add(1)
+
+		ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+		defer cancel()
+
+		err := pool.Close(ctx)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("Close() did not timeout")
+		}
+	})
+
+	t.Run("CloseConnectionPool Next() should error if closed", func(t *testing.T) {
+		pool := &statusConnectionPool{
+			live: []*Connection{
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+			},
+			selector: &roundRobinSelector{curr: -1},
+			closeC:   make(chan struct{}),
+		}
+
+		err := pool.Close(t.Context())
+		if err != nil {
+			t.Errorf("Close() returned an error: %v", err)
+		}
+
+		_, err = pool.Next()
+		if err == nil {
+			t.Errorf("Next() returned nil error")
+		} else {
+			if !strings.Contains(err.Error(), "connection pool is closed") {
+				t.Errorf("Next() did not return expected error")
+			}
 		}
 	})
 }

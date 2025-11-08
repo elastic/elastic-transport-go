@@ -20,9 +20,11 @@ The transport provides the basic layer to access Elasticsearch APIs.
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 )
@@ -37,6 +39,11 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = transport.Close(ctx)
+	}()
 
 	req, _ := http.NewRequest("GET", "/", nil)
 
