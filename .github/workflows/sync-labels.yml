@@ -24,4 +24,4 @@ jobs:
         with:
           config-file: .github/labels.yml
           delete-other-labels: true
-          dry-run: true
+          dry-run: false
