@@ -252,6 +252,10 @@ func TestStatusConnectionPoolOnFailure(t *testing.T) {
 				t.Errorf("Unexpected value for item %d in pool.dead: %s", i, pool.dead[i].URL.String())
 			}
 		}
+
+		if pool.live[0].URL.String() != "http://foo2" {
+			t.Errorf("Expected the first live connection to be http://foo2, got: %s", pool.live[0].URL.String())
+		}
 	})
 
 	t.Run("Short circuit when the connection is already dead", func(t *testing.T) {
@@ -686,6 +690,34 @@ func TestCloseConnectionPool(t *testing.T) {
 		} else {
 			if !strings.Contains(err.Error(), "connection pool is closed") {
 				t.Errorf("Next() did not return expected error")
+			}
+		}
+	})
+}
+
+func TestNewConnectionPool(t *testing.T) {
+	t.Run("Clones the connection slice", func(t *testing.T) {
+		conns := []*Connection{
+			{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+			{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+		}
+		pool, err := NewConnectionPool(conns, nil)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err)
+		}
+
+		scp, ok := pool.(*statusConnectionPool)
+		if !ok {
+			t.Errorf("unexpected type: %T", pool)
+		}
+		for i := range conns {
+			scp.live[i] = nil
+		}
+
+		// If conns isn't cloned, the caller will modify the live list
+		for i := range conns {
+			if conns[i] == nil {
+				t.Errorf("expected connection to be cloned")
 			}
 		}
 	})
