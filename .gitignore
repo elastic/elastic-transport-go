@@ -2,3 +2,8 @@
 
 #jetBrains editors
 .idea
+
+# Node.js (for CI tools only)
+node_modules/
+package-lock.json
+package.json
