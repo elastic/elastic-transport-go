@@ -1,5 +1,10 @@
 name: License headers
-on: [pull_request]
+
+on: 
+  pull_request:
+    branches:
+      - "main"
+      
 jobs:
   license-check:
     runs-on: ubuntu-latest
