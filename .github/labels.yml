@@ -96,3 +96,9 @@
 - name: "wontfix"
   color: "#ffffff"
   description: "This will not be worked on"
+
+- name: "autorelease: pending"
+  color: "#ededed"
+
+- name: "autorelease: tagged"
+  color: "#ededed"
