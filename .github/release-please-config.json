@@ -8,5 +8,10 @@
         ".": {
             "version-file": "elastictransport/version/version.go"
         }
-    }
+    },
+    "plugins": [
+        {
+            "type": "sentence-case"
+        }
+    ]
 }
