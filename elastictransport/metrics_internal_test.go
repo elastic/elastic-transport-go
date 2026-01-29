@@ -49,7 +49,7 @@ func TestMetrics(t *testing.T) {
 		tp.metrics.responses[404] = 2
 
 		req, _ := http.NewRequest("HEAD", "/", nil)
-		tp.Perform(req)
+		_, _ = tp.Perform(req)
 
 		m, err := tp.Metrics()
 		if err != nil {
@@ -127,7 +127,7 @@ func TestTransportPerformAndReadMetricsResponses(t *testing.T) {
 			for {
 				select {
 				case <-ch:
-					break
+					return
 				default:
 					metrics, _ := tp.Metrics()
 					for range metrics.Responses {

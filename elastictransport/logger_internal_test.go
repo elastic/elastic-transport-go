@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -49,8 +48,8 @@ func TestTransportLogger(t *testing.T) {
 					Status:        "200 OK",
 					StatusCode:    200,
 					ContentLength: 13,
-					Header:        http.Header(map[string][]string{"Content-Type": {"application/json"}}),
-					Body:          ioutil.NopCloser(strings.NewReader(`{"foo":"bar"}`)),
+					Header:        map[string][]string{"Content-Type": {"application/json"}},
+					Body:          io.NopCloser(strings.NewReader(`{"foo":"bar"}`)),
 				}, nil
 			},
 		}
@@ -62,7 +61,7 @@ func TestTransportLogger(t *testing.T) {
 		tp, _ := New(Config{
 			URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
 			Transport: newRoundTripper(),
-			// Logger: ioutil.Discard,
+			// Logger: io.Discard,
 		})
 
 		for i := 0; i < 100; i++ {
@@ -103,7 +102,7 @@ func TestTransportLogger(t *testing.T) {
 					return nil, errors.New("Mock error")
 				},
 			},
-			Logger: &TextLogger{Output: ioutil.Discard},
+			Logger: &TextLogger{Output: io.Discard},
 		})
 
 		req, _ := http.NewRequest("GET", "/abc", nil)
@@ -126,14 +125,14 @@ func TestTransportLogger(t *testing.T) {
 		})
 
 		req, _ := http.NewRequest("GET", "/abc?q=a,b", nil)
-		req.Body = ioutil.NopCloser(strings.NewReader(`{"query":"42"}`))
+		req.Body = io.NopCloser(strings.NewReader(`{"query":"42"}`))
 
 		res, err := tp.Perform(req)
 		if err != nil {
 			t.Fatalf("Unexpected error: %s", err)
 		}
 
-		body, err := ioutil.ReadAll(res.Body)
+		body, err := io.ReadAll(res.Body)
 		if err != nil {
 			t.Fatalf("Error reading response body: %s", err)
 		}
@@ -157,14 +156,14 @@ func TestTransportLogger(t *testing.T) {
 		})
 
 		req, _ := http.NewRequest("GET", "/abc?q=a,b", nil)
-		req.Body = ioutil.NopCloser(strings.NewReader(`{"query":"42"}`))
+		req.Body = io.NopCloser(strings.NewReader(`{"query":"42"}`))
 
 		res, err := tp.Perform(req)
 		if err != nil {
 			t.Fatalf("Unexpected error: %s", err)
 		}
 
-		_, err = ioutil.ReadAll(res.Body)
+		_, err = io.ReadAll(res.Body)
 		if err != nil {
 			t.Fatalf("Error reading response body: %s", err)
 		}
@@ -202,14 +201,14 @@ func TestTransportLogger(t *testing.T) {
 		})
 
 		req, _ := http.NewRequest("GET", "/abc?q=a,b", nil)
-		req.Body = ioutil.NopCloser(strings.NewReader(`{"query":"42"}`))
+		req.Body = io.NopCloser(strings.NewReader(`{"query":"42"}`))
 
 		res, err := tp.Perform(req)
 		if err != nil {
 			t.Fatalf("Unexpected error: %s", err)
 		}
 
-		_, err = ioutil.ReadAll(res.Body)
+		_, err = io.ReadAll(res.Body)
 		if err != nil {
 			t.Fatalf("Error reading response body: %s", err)
 		}
@@ -256,14 +255,14 @@ func TestTransportLogger(t *testing.T) {
 		})
 
 		req, _ := http.NewRequest("GET", "/abc?q=a,b", nil)
-		req.Body = ioutil.NopCloser(strings.NewReader(`{"query":"42"}`))
+		req.Body = io.NopCloser(strings.NewReader(`{"query":"42"}`))
 
 		res, err := tp.Perform(req)
 		if err != nil {
 			t.Fatalf("Unexpected error: %s", err)
 		}
 
-		_, err = ioutil.ReadAll(res.Body)
+		_, err = io.ReadAll(res.Body)
 		if err != nil {
 			t.Fatalf("Error reading response body: %s", err)
 		}
@@ -292,7 +291,7 @@ func TestTransportLogger(t *testing.T) {
 		})
 
 		req, _ := http.NewRequest("GET", "/abc?q=a,b", nil)
-		req.Body = ioutil.NopCloser(strings.NewReader(`{"query":"42"}`))
+		req.Body = io.NopCloser(strings.NewReader(`{"query":"42"}`))
 		_, err := tp.Perform(req)
 		if err != nil {
 			t.Fatalf("Unexpected error: %s", err)
@@ -329,14 +328,14 @@ func TestTransportLogger(t *testing.T) {
 		})
 
 		req, _ := http.NewRequest("GET", "/abc?q=a,b", nil)
-		req.Body = ioutil.NopCloser(strings.NewReader(`{"query":"42"}`))
+		req.Body = io.NopCloser(strings.NewReader(`{"query":"42"}`))
 
 		res, err := tp.Perform(req)
 		if err != nil {
 			t.Fatalf("Unexpected error: %s", err)
 		}
 
-		_, err = ioutil.ReadAll(res.Body)
+		_, err = io.ReadAll(res.Body)
 		if err != nil {
 			t.Fatalf("Error reading response body: %s", err)
 		}
@@ -372,7 +371,7 @@ func TestTransportLogger(t *testing.T) {
 		})
 
 		req, _ := http.NewRequest("GET", "/abc?q=a,b", nil)
-		req.Body = ioutil.NopCloser(strings.NewReader(`{"query":"42"}`))
+		req.Body = io.NopCloser(strings.NewReader(`{"query":"42"}`))
 
 		_, err := tp.Perform(req)
 		if err != nil {
@@ -395,13 +394,13 @@ func TestTransportLogger(t *testing.T) {
 			t.Errorf("Expected input to be closed: %#v", input)
 		}
 
-		read, _ := ioutil.ReadAll(&input)
+		read, _ := io.ReadAll(&input)
 		if len(read) > 0 {
 			t.Errorf("Expected input to be drained: %#v", input.content)
 		}
 
-		b1r, _ := ioutil.ReadAll(b1)
-		b2r, _ := ioutil.ReadAll(b2)
+		b1r, _ := io.ReadAll(b1)
+		b2r, _ := io.ReadAll(b2)
 		if len(b1r) != 6 || len(b2r) != 6 {
 			t.Errorf(
 				"Unexpected duplicate content, b1=%q (%db), b2=%q (%db)",
@@ -421,17 +420,17 @@ func TestTransportLogger(t *testing.T) {
 			t.Errorf("Unexpected error value, expected [ERROR MOCK], got [%s]", err.Error())
 		}
 
-		read, _ := ioutil.ReadAll(&input)
+		read, _ := io.ReadAll(&input)
 		if string(read) != "BAR" {
 			t.Errorf("Unexpected undrained part: %q", read)
 		}
 
-		b2r, _ := ioutil.ReadAll(b2)
+		b2r, _ := io.ReadAll(b2)
 		if string(b2r) != "FOO" {
 			t.Errorf("Unexpected value, b2=%q", string(b2r))
 		}
 
-		b1c, err := ioutil.ReadAll(b1)
+		b1c, err := io.ReadAll(b1)
 		if string(b1c) != "FOO" {
 			t.Errorf("Unexpected value, b1=%q", string(b1c))
 		}
@@ -445,7 +444,7 @@ func TestTransportLogger(t *testing.T) {
 }
 
 func TestDebuggingLogger(t *testing.T) {
-	logger := &debuggingLogger{Output: ioutil.Discard}
+	logger := &debuggingLogger{Output: io.Discard}
 
 	t.Run("Log", func(t *testing.T) {
 		if err := logger.Log("Foo"); err != nil {
@@ -470,7 +469,7 @@ func (l *CustomLogger) LogRoundTrip(
 	start time.Time,
 	dur time.Duration,
 ) error {
-	fmt.Fprintln(l.Output, req.Method, req.URL, "->", res.Status)
+	_, _ = fmt.Fprintln(l.Output, req.Method, req.URL, "->", res.Status)
 	return nil
 }
 

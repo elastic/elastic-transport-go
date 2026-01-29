@@ -21,7 +21,7 @@
 package elastictransport_test
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -35,7 +35,7 @@ var defaultResponse = http.Response{
 	StatusCode:    200,
 	ContentLength: 13,
 	Header:        http.Header(map[string][]string{"Content-Type": {"application/json"}}),
-	Body:          ioutil.NopCloser(strings.NewReader(`{"foo":"bar"}`)),
+	Body:          io.NopCloser(strings.NewReader(`{"foo":"bar"}`)),
 }
 
 type FakeTransport struct {

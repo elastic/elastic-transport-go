@@ -158,7 +158,10 @@ func (cp *statusConnectionPool) Next() (*Connection, error) {
 		cp.dead = slices.Delete(cp.dead, len(cp.dead)-1, len(cp.dead))
 		c.Lock()
 		defer c.Unlock()
-		cp.resurrect(c, false)
+		err := cp.resurrect(c, false)
+		if err != nil {
+			return nil, err
+		}
 		return c, nil
 	}
 	return nil, errors.New("no connection available")
@@ -197,14 +200,14 @@ func (cp *statusConnectionPool) OnFailure(c *Connection) error {
 
 	if c.IsDead {
 		if debugLogger != nil {
-			debugLogger.Logf("Already removed %s\n", c.URL)
+			_ = debugLogger.Logf("Already removed %s\n", c.URL)
 		}
 		c.Unlock()
 		return nil
 	}
 
 	if debugLogger != nil {
-		debugLogger.Logf("Removing %s...\n", c.URL)
+		_ = debugLogger.Logf("Removing %s...\n", c.URL)
 	}
 	c.markAsDead()
 	cp.scheduleResurrect(c)
@@ -362,7 +365,7 @@ func (cp *statusConnectionPool) connections() []*Connection {
 // The calling code is responsible for locking.
 func (cp *statusConnectionPool) resurrect(c *Connection, removeDead bool) error {
 	if debugLogger != nil {
-		debugLogger.Logf("Resurrecting %s\n", c.URL)
+		_ = debugLogger.Logf("Resurrecting %s\n", c.URL)
 	}
 
 	c.markAsLive()
@@ -388,7 +391,7 @@ func (cp *statusConnectionPool) scheduleResurrect(c *Connection) {
 	factor := math.Min(float64(c.Failures-1), float64(defaultResurrectTimeoutFactorCutoff))
 	timeout := time.Duration(defaultResurrectTimeoutInitial.Seconds() * math.Exp2(factor) * float64(time.Second))
 	if debugLogger != nil {
-		debugLogger.Logf("Resurrect %s (failures=%d, factor=%1.1f, timeout=%s) in %s\n", c.URL, c.Failures, factor, timeout, c.DeadSince.Add(timeout).Sub(time.Now().UTC()).Truncate(time.Second))
+		_ = debugLogger.Logf("Resurrect %s (failures=%d, factor=%1.1f, timeout=%s) in %s\n", c.URL, c.Failures, factor, timeout, c.DeadSince.Add(timeout).Sub(time.Now().UTC()).Truncate(time.Second))
 	}
 
 	cp.resurrectWaitGroup.Add(1)
@@ -407,12 +410,15 @@ func (cp *statusConnectionPool) scheduleResurrect(c *Connection) {
 
 			if !c.IsDead {
 				if debugLogger != nil {
-					debugLogger.Logf("Already resurrected %s\n", c.URL)
+					_ = debugLogger.Logf("Already resurrected %s\n", c.URL)
 				}
 				return
 			}
 
-			cp.resurrect(c, true)
+			err := cp.resurrect(c, true)
+			if err != nil {
+				return
+			}
 		case <-cp.closeC:
 			return
 		}

@@ -28,7 +28,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -130,12 +129,10 @@ type Client struct {
 	password     string
 	apikey       string
 	servicetoken string
-	fingerprint  string
 	header       http.Header
 
-	retryOnStatus        []int
-	disableRetry         bool
-	enableRetryOnTimeout bool
+	retryOnStatus []int
+	disableRetry  bool
 
 	maxRetries            int
 	retryOnError          func(*http.Request, error) bool
@@ -179,7 +176,7 @@ func New(cfg Config) (*Client, error) {
 
 	if transport, ok := cfg.Transport.(*http.Transport); ok {
 		if cfg.CertificateFingerprint != "" {
-			transport.DialTLS = func(network, addr string) (net.Conn, error) {
+			transport.DialTLSContext = func(_ context.Context, network, addr string) (net.Conn, error) {
 				fingerprint, _ := hex.DecodeString(cfg.CertificateFingerprint)
 
 				c, err := tls.Dial(network, addr, &tls.Config{InsecureSkipVerify: true})
@@ -194,7 +191,7 @@ func New(cfg Config) (*Client, error) {
 					digest := sha256.Sum256(cert.Raw)
 
 					// Provided fingerprint should match at least one certificate from remote before we continue.
-					if bytes.Compare(digest[0:], fingerprint) == 0 {
+					if bytes.Equal(digest[0:], fingerprint) {
 						return c, nil
 					}
 				}
@@ -341,7 +338,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			req.GetBody = func() (io.ReadCloser, error) {
 				// Copy value of buf so it's not destroyed on first read
 				r := *buf
-				return ioutil.NopCloser(&r), nil
+				return io.NopCloser(&r), nil
 			}
 			req.Body, _ = req.GetBody()
 
@@ -351,12 +348,15 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		} else if req.GetBody == nil {
 			if !c.disableRetry || (c.logger != nil && c.logger.RequestBodyEnabled()) {
 				var buf bytes.Buffer
-				buf.ReadFrom(req.Body)
+				_, err := buf.ReadFrom(req.Body)
+				if err != nil {
+					return nil, err
+				}
 
 				req.GetBody = func() (io.ReadCloser, error) {
 					// Copy value of buf so it's not destroyed on first read
 					r := buf
-					return ioutil.NopCloser(&r), nil
+					return io.NopCloser(&r), nil
 				}
 				req.Body, _ = req.GetBody()
 			}
@@ -417,7 +417,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 
 			// Report the connection as unsuccessful
 			c.Lock()
-			c.pool.OnFailure(conn)
+			_ = c.pool.OnFailure(conn)
 			c.Unlock()
 
 			// Retry upon decision by the user
@@ -425,9 +425,9 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 				shouldRetry = true
 			}
 		} else {
-			// Report the connection as succesfull
+			// Report the connection as successful
 			c.Lock()
-			c.pool.OnSuccess(conn)
+			_ = c.pool.OnSuccess(conn)
 			c.Unlock()
 		}
 
@@ -459,8 +459,8 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		// Drain and close body when retrying after response
 		if shouldCloseBody && i < c.maxRetries {
 			if res.Body != nil {
-				io.Copy(ioutil.Discard, res.Body)
-				res.Body.Close()
+				_, _ = io.Copy(io.Discard, res.Body)
+				_ = res.Body.Close()
 			}
 		}
 
@@ -599,7 +599,7 @@ func (c *Client) logRoundTrip(
 			res.Body = b2
 		}
 	}
-	c.logger.LogRoundTrip(req, &dupRes, err, start, dur) // errcheck exclude
+	_ = c.logger.LogRoundTrip(req, &dupRes, err, start, dur) // errcheck exclude
 }
 
 func (c *Client) isClosed() bool {

@@ -28,7 +28,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -39,12 +38,9 @@ import (
 )
 
 var (
-	_ = fmt.Print
+	_     = fmt.Print
+	lrand = rand.New(rand.NewSource(time.Now().Unix()))
 )
-
-func init() {
-	rand.Seed(time.Now().Unix())
-}
 
 type mockTransp struct {
 	RoundTripFunc func(req *http.Request) (*http.Response, error)
@@ -63,7 +59,7 @@ func TestTransport(t *testing.T) {
 	t.Run("Interface", func(t *testing.T) {
 		tp, _ := New(Config{})
 		var _ Interface = tp
-		var _ http.RoundTripper = tp.transport
+		var _ = tp.transport
 	})
 
 	t.Run("Default", func(t *testing.T) {
@@ -141,8 +137,8 @@ func TestTransportConfig(t *testing.T) {
 			t.Errorf("Unexpected compressRequestBody: %v", tp.compressRequestBody)
 		}
 
-		if tp.transport.(*http.Transport).DialTLS != nil && http.DefaultTransport.(*http.Transport).DialTLS != nil {
-			t.Errorf("DefaultTransport should have been cloned.")
+		if tp.transport.(*http.Transport).DialTLSContext != nil && http.DefaultTransport.(*http.Transport).DialTLSContext != nil {
+			t.Errorf("DefaultTransportContext should have been cloned.")
 		}
 	})
 }
@@ -212,7 +208,7 @@ type CustomConnectionPool struct {
 
 // Next returns a random connection.
 func (cp *CustomConnectionPool) Next() (*Connection, error) {
-	u := cp.urls[rand.Intn(len(cp.urls))]
+	u := cp.urls[lrand.Intn(len(cp.urls))]
 	return &Connection{URL: u}, nil
 }
 
@@ -589,7 +585,7 @@ func TestTransportPerformRetries(t *testing.T) {
 					i++
 					fmt.Printf("Request #%d", i)
 					fmt.Print(": 502\n")
-					body := ioutil.NopCloser(strings.NewReader(`MOCK`))
+					body := io.NopCloser(strings.NewReader(`MOCK`))
 					return &http.Response{StatusCode: 502, Body: body}, nil
 				},
 			}})
@@ -610,8 +606,8 @@ func TestTransportPerformRetries(t *testing.T) {
 			t.Errorf("Unexpected response: %+v", res)
 		}
 
-		resBody, _ := ioutil.ReadAll(res.Body)
-		res.Body.Close()
+		resBody, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
 
 		if string(resBody) != "MOCK" {
 			t.Errorf("Unexpected body, want=MOCK, got=%s", resBody)
@@ -632,7 +628,7 @@ func TestTransportPerformRetries(t *testing.T) {
 					i++
 					fmt.Printf("Request #%d", i)
 					fmt.Print(": ERR\n")
-					return nil, &mockNetError{error: fmt.Errorf("Mock network error (%d)", i)}
+					return nil, &mockNetError{error: fmt.Errorf("mock network error (%d)", i)}
 				},
 			}})
 
@@ -664,7 +660,7 @@ func TestTransportPerformRetries(t *testing.T) {
 			URLs: []*url.URL{u},
 			Transport: &mockTransp{
 				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
-					body, err := ioutil.ReadAll(req.Body)
+					body, err := io.ReadAll(req.Body)
 					if err != nil {
 						panic(err)
 					}
@@ -738,14 +734,14 @@ func TestTransportPerformRetries(t *testing.T) {
 					i++
 					fmt.Printf("Request #%d", i)
 					fmt.Print(": ERR\n")
-					return nil, &mockNetError{error: fmt.Errorf("Mock network error (%d)", i)}
+					return nil, &mockNetError{error: fmt.Errorf("mock network error (%d)", i)}
 				},
 			},
 			DisableRetry: true,
 		})
 
 		req, _ := http.NewRequest("GET", "/abc", nil)
-		tp.Perform(req)
+		_, _ = tp.Perform(req)
 
 		if i != 1 {
 			t.Errorf("Unexpected number of requests, want=%d, got=%d", 1, i)
@@ -848,12 +844,12 @@ func TestTransportPerformRetries(t *testing.T) {
 				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
 					i++
 					if i == 3 {
-						return nil, x509.CertificateInvalidError{nil, x509.Expired, ""}
+						return nil, x509.CertificateInvalidError{Reason: x509.Expired}
 					}
 
 					fmt.Printf("Request #%d", i)
 					fmt.Print(": ERR\n")
-					return nil, fmt.Errorf("Mock regular error (%d)", i)
+					return nil, fmt.Errorf("mock regular error (%d)", i)
 				},
 			}})
 
@@ -890,7 +886,7 @@ func TestTransportPerformRetries(t *testing.T) {
 						return nil, errors.New("simple custom error")
 					case 2:
 						i++
-						return &http.Response{Status: "200 OK", StatusCode: http.StatusOK, Body: ioutil.NopCloser(strings.NewReader("{}"))}, nil
+						return &http.Response{Status: "200 OK", StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}"))}, nil
 					}
 
 					return nil, nil
@@ -902,12 +898,12 @@ func TestTransportPerformRetries(t *testing.T) {
 		})
 
 		req, _ := http.NewRequest("GET", "/", nil)
-		res, err := tp.Perform(req)
+		_, err := tp.Perform(req)
 		if err == nil {
 			t.Fatalf("Expected error, %s", err)
 		}
 
-		res, err = tp.Perform(req)
+		res, err := tp.Perform(req)
 		if err != nil {
 			t.Fatalf("Expected error, %s", err)
 		}
@@ -998,7 +994,7 @@ func TestMaxRetries(t *testing.T) {
 				DisableRetry: test.disableRetry,
 			})
 
-			c.Perform(&http.Request{URL: &url.URL{}, Header: make(http.Header)}) // errcheck ignore
+			_, _ = c.Perform(&http.Request{URL: &url.URL{}, Header: make(http.Header)}) // errcheck ignore
 
 			if test.expectedCallCount != callCount {
 				t.Errorf("Bad retry call count, got : %d, want : %d", callCount, test.expectedCallCount)
@@ -1054,7 +1050,7 @@ func TestRequestCompression(t *testing.T) {
 						}
 
 						var buf bytes.Buffer
-						buf.ReadFrom(req.Body)
+						_, _ = buf.ReadFrom(req.Body)
 
 						if req.ContentLength != int64(buf.Len()) {
 							return nil, fmt.Errorf("mismatched Content-Length: %d vs actual %d", req.ContentLength, buf.Len())
@@ -1066,7 +1062,7 @@ func TestRequestCompression(t *testing.T) {
 							if err != nil {
 								return nil, fmt.Errorf("decompression error: %v", err)
 							}
-							unBuf.ReadFrom(zr)
+							_, _ = unBuf.ReadFrom(zr)
 							buf = unBuf
 						}
 
@@ -1201,11 +1197,11 @@ func TestClose(t *testing.T) {
 					return &http.Response{Status: "MOCK"}, nil
 				},
 			}})
-		if err := tp.Close(t.Context()); err != nil {
+		if err := tp.Close(context.Background()); err != nil {
 			t.Fatalf("Unexpected error: %s", err)
 		}
 		// Closing a second time returns ErrAlreadyClosed.
-		if err := tp.Close(t.Context()); err == nil {
+		if err := tp.Close(context.Background()); err == nil {
 			t.Fatal("Expected ErrAlreadyClosed")
 		} else if !errors.Is(err, ErrAlreadyClosed) {
 			t.Fatalf("Unexpected error: %s", err)
@@ -1221,7 +1217,7 @@ func TestClose(t *testing.T) {
 					return nil, fmt.Errorf("error")
 				},
 			}})
-		if err := tp.Close(nil); err != nil {
+		if err := tp.Close(nil); err != nil { //nolint:staticcheck
 			t.Fatalf("Unexpected error: %s", err)
 		}
 	})
@@ -1238,7 +1234,7 @@ func TestClose(t *testing.T) {
 
 		tp.discoverWaitGroup.Add(1)
 
-		ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
 		if err := tp.Close(ctx); err == nil {
 			if !errors.Is(err, context.DeadlineExceeded) {
@@ -1259,7 +1255,7 @@ func TestClose(t *testing.T) {
 			}})
 
 		tp.scheduleDiscoverNodes(1 * time.Hour)
-		if err := tp.Close(t.Context()); err != nil {
+		if err := tp.Close(context.Background()); err != nil {
 			t.Fatalf("Unexpected error: %s", err)
 		}
 
@@ -1281,7 +1277,7 @@ func TestClose(t *testing.T) {
 
 		tp.scheduleDiscoverNodes(10 * time.Millisecond)
 		<-running
-		if err := tp.Close(t.Context()); err != nil {
+		if err := tp.Close(context.Background()); err != nil {
 			t.Fatalf("Unexpected error: %s", err)
 		}
 
@@ -1306,7 +1302,7 @@ func TestClose(t *testing.T) {
 		tp.scheduleDiscoverNodes(10 * time.Millisecond)
 		<-running
 
-		ctx, cancel := context.WithTimeout(t.Context(), 1*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 		defer cancel()
 		if err := tp.Close(ctx); err == nil {
 			t.Fatalf("Expected error, got %s", err)
@@ -1327,7 +1323,7 @@ func TestClose(t *testing.T) {
 					return nil, fmt.Errorf("error")
 				},
 			}})
-		_ = tp.Close(t.Context())
+		_ = tp.Close(context.Background())
 		req, _ := http.NewRequest("GET", "/abc", nil)
 
 		_, err := tp.Perform(req)
@@ -1355,7 +1351,7 @@ func TestClose(t *testing.T) {
 				}}
 			},
 		})
-		err := tp.Close(t.Context())
+		err := tp.Close(context.Background())
 		if err != nil {
 			t.Fatalf("Unexpected error: %s", err)
 		}
@@ -1379,7 +1375,7 @@ func TestClose(t *testing.T) {
 				}}
 			},
 		})
-		err := tp.Close(t.Context())
+		err := tp.Close(context.Background())
 		if err == nil {
 			t.Fatalf("Expected error, got nil")
 		} else if !strings.Contains(err.Error(), "mock error") {

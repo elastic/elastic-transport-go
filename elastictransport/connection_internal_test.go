@@ -432,7 +432,9 @@ func TestUpdateConnectionPool(t *testing.T) {
 			},
 		}
 
-		pool.Update(initConnList())
+		if err := pool.Update(initConnList()); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
 		if len(pool.dead) != 0 {
 			t.Errorf("Expected no dead connections, got: %s", pool.dead)
 		}
@@ -450,7 +452,9 @@ func TestUpdateConnectionPool(t *testing.T) {
 			{URL: &url.URL{Scheme: "http", Host: "bar1"}},
 		}
 
-		pool.Update(updatedConnections)
+		if err := pool.Update(updatedConnections); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
 
 		fmt.Println(pool.live)
 		fmt.Println(pool.dead)
@@ -467,11 +471,13 @@ func TestUpdateConnectionPool(t *testing.T) {
 			pool.live = append(pool.live, &conns[i])
 		}
 
-		tmp := []*Connection{}
+		var tmp []*Connection
 		for i := 0; i < len(conns); i++ {
 			tmp = append(tmp, &conns[i])
 		}
-		pool.Update(tmp)
+		if err := pool.Update(tmp); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
 
 		if len(pool.live) != len(tmp) {
 			t.Errorf("Invalid number of connections: %d", len(pool.live))
@@ -494,14 +500,23 @@ func TestUpdateConnectionPool(t *testing.T) {
 			{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 		}
 		err = cp.Update(connections)
+		if err != nil {
+			t.Errorf("Update() returned an error: %v", err)
+		}
 		if len(cp.live) != 2 {
 			t.Errorf("Expected only two live connection after update")
 		}
 
 		// foo1 fails
-		cp.OnFailure(cp.live[0])
+		err = cp.OnFailure(cp.live[0])
+		if err != nil {
+			t.Errorf("OnFailure() returned an error: %v", err)
+		}
 		// we update the connexion, nothing should move
 		err = cp.Update(connections)
+		if err != nil {
+			t.Errorf("Update() returned an error: %v", err)
+		}
 		if len(cp.live) != 1 {
 			t.Errorf("Expected no connections to be added to lists")
 		}
@@ -509,14 +524,23 @@ func TestUpdateConnectionPool(t *testing.T) {
 		// Test adding a new connection that's not already present
 		connections = append(connections, &Connection{URL: &url.URL{Scheme: "http", Host: "foo12"}})
 		err = cp.Update(connections)
+		if err != nil {
+			t.Errorf("Update() returned an error: %v", err)
+		}
 		if len(cp.live) != 2 {
 			t.Errorf("Expected the new connection to be added to live list")
 		}
-		cp.resurrect(cp.dead[0], false)
+
+		if err := cp.resurrect(cp.dead[0], false); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
 
 		// Test updating with an empty list of connections
 		connections = []*Connection{}
 		err = cp.Update(connections)
+		if err != nil {
+			t.Errorf("Update() returned an error: %v", err)
+		}
 		if len(cp.live) != 3 {
 			t.Errorf("Expected connections to be untouched after empty update")
 		}
@@ -542,7 +566,9 @@ func TestUpdateConnectionPool(t *testing.T) {
 		}
 
 		// Update happens between Next and OnFailure
-		cp.Update(connections)
+		if err := cp.Update(connections); err != nil {
+			t.Errorf("unexpected error: %s", err)
+		}
 
 		// conn fails, doesn't exist in live list anymore
 		err = cp.OnFailure(conn)
@@ -560,19 +586,19 @@ func TestCloseConnectionPool(t *testing.T) {
 	t.Run("CloseConnectionPool", func(t *testing.T) {
 		pool := &statusConnectionPool{
 			live: []*Connection{
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
 			selector: &roundRobinSelector{curr: -1},
 			closeC:   make(chan struct{}),
 		}
 
-		err := pool.Close(t.Context())
+		err := pool.Close(context.Background())
 		if err != nil {
 			t.Errorf("Close() returned an error: %v", err)
 		}
 
-		err = pool.Close(t.Context())
+		err = pool.Close(context.Background())
 		if err == nil {
 			t.Errorf("Second call to Close() should return an error")
 		} else if !strings.Contains(err.Error(), "already closed") {
@@ -583,8 +609,8 @@ func TestCloseConnectionPool(t *testing.T) {
 	t.Run("CloseConnectionPool isClosed", func(t *testing.T) {
 		pool := &statusConnectionPool{
 			live: []*Connection{
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
 			selector: &roundRobinSelector{curr: -1},
 			closeC:   make(chan struct{}),
@@ -593,7 +619,7 @@ func TestCloseConnectionPool(t *testing.T) {
 		if pool.isClosed() {
 			t.Errorf("isClosed() returned true before closing")
 		}
-		err := pool.Close(t.Context())
+		err := pool.Close(context.Background())
 		if err != nil {
 			t.Errorf("Close() returned an error: %v", err)
 		}
@@ -607,8 +633,8 @@ func TestCloseConnectionPool(t *testing.T) {
 
 		pool := &statusConnectionPool{
 			live: []*Connection{
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
 			dead: []*Connection{
 				deadConn,
@@ -619,7 +645,7 @@ func TestCloseConnectionPool(t *testing.T) {
 
 		pool.scheduleResurrect(deadConn)
 
-		err := pool.Close(t.Context())
+		err := pool.Close(context.Background())
 		if err != nil {
 			t.Errorf("Close() returned an error: %v", err)
 		}
@@ -636,13 +662,13 @@ func TestCloseConnectionPool(t *testing.T) {
 	t.Run("CloseConnectionPool nil context", func(t *testing.T) {
 		pool := &statusConnectionPool{
 			live: []*Connection{
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
 			selector: &roundRobinSelector{curr: -1},
 			closeC:   make(chan struct{}),
 		}
-		err := pool.Close(nil)
+		err := pool.Close(nil) //nolint:staticcheck
 		if err != nil {
 			t.Errorf("Close() returned an error: %v", err)
 		}
@@ -651,8 +677,8 @@ func TestCloseConnectionPool(t *testing.T) {
 	t.Run("CloseConnectionPool should timeout", func(t *testing.T) {
 		pool := &statusConnectionPool{
 			live: []*Connection{
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
 			selector: &roundRobinSelector{curr: -1},
 			closeC:   make(chan struct{}),
@@ -660,7 +686,7 @@ func TestCloseConnectionPool(t *testing.T) {
 		// Add to waitgroup that will never be resolved
 		pool.resurrectWaitGroup.Add(1)
 
-		ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
 
 		err := pool.Close(ctx)
@@ -672,14 +698,14 @@ func TestCloseConnectionPool(t *testing.T) {
 	t.Run("CloseConnectionPool Next() should error if closed", func(t *testing.T) {
 		pool := &statusConnectionPool{
 			live: []*Connection{
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
-				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+				{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
 			selector: &roundRobinSelector{curr: -1},
 			closeC:   make(chan struct{}),
 		}
 
-		err := pool.Close(t.Context())
+		err := pool.Close(context.Background())
 		if err != nil {
 			t.Errorf("Close() returned an error: %v", err)
 		}

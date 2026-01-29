@@ -22,7 +22,7 @@ package elastictransport_test
 
 import (
 	"bytes"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"testing"
@@ -38,7 +38,7 @@ func BenchmarkTransportLogger(b *testing.B) {
 			tp, _ := elastictransport.New(elastictransport.Config{
 				URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
 				Transport: newFakeTransport(b),
-				Logger:    &elastictransport.TextLogger{Output: ioutil.Discard},
+				Logger:    &elastictransport.TextLogger{Output: io.Discard},
 			})
 
 			req, _ := http.NewRequest("GET", "/abc", nil)
@@ -54,7 +54,7 @@ func BenchmarkTransportLogger(b *testing.B) {
 			tp, _ := elastictransport.New(elastictransport.Config{
 				URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
 				Transport: newFakeTransport(b),
-				Logger:    &elastictransport.TextLogger{Output: ioutil.Discard, EnableRequestBody: true, EnableResponseBody: true},
+				Logger:    &elastictransport.TextLogger{Output: io.Discard, EnableRequestBody: true, EnableResponseBody: true},
 			})
 
 			req, _ := http.NewRequest("GET", "/abc", nil)
@@ -63,11 +63,11 @@ func BenchmarkTransportLogger(b *testing.B) {
 				b.Fatalf("Unexpected error: %s", err)
 			}
 
-			body, err := ioutil.ReadAll(res.Body)
+			body, err := io.ReadAll(res.Body)
 			if err != nil {
 				b.Fatalf("Error reading response body: %s", err)
 			}
-			res.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+			res.Body = io.NopCloser(bytes.NewBuffer(body))
 			if len(body) < 13 {
 				b.Errorf("Error reading response body bytes, want=13, got=%d", len(body))
 			}
@@ -79,7 +79,7 @@ func BenchmarkTransportLogger(b *testing.B) {
 			tp, _ := elastictransport.New(elastictransport.Config{
 				URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
 				Transport: newFakeTransport(b),
-				Logger:    &elastictransport.JSONLogger{Output: ioutil.Discard},
+				Logger:    &elastictransport.JSONLogger{Output: io.Discard},
 			})
 
 			req, _ := http.NewRequest("GET", "/abc", nil)
@@ -95,7 +95,7 @@ func BenchmarkTransportLogger(b *testing.B) {
 			tp, _ := elastictransport.New(elastictransport.Config{
 				URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
 				Transport: newFakeTransport(b),
-				Logger:    &elastictransport.JSONLogger{Output: ioutil.Discard, EnableRequestBody: true, EnableResponseBody: true},
+				Logger:    &elastictransport.JSONLogger{Output: io.Discard, EnableRequestBody: true, EnableResponseBody: true},
 			})
 
 			req, _ := http.NewRequest("GET", "/abc", nil)
