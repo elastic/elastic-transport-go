@@ -244,12 +244,12 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 	})
 
 	b.Run("resurrect()", func(b *testing.B) {
-		pool := &statusConnectionPool{
-			live:     slices.Clone(conns),
-			selector: &roundRobinSelector{curr: -1},
-		}
 
 		b.Run("Single", func(b *testing.B) {
+			pool := &statusConnectionPool{
+				live:     slices.Clone(conns),
+				selector: &roundRobinSelector{curr: -1},
+			}
 			c, err := pool.Next()
 			if err != nil {
 				b.Fatalf("Unexpected error: %s", err)
@@ -269,6 +269,10 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 		})
 
 		b.Run("Parallel (10)", func(b *testing.B) {
+			pool := &statusConnectionPool{
+				live:     slices.Clone(conns),
+				selector: &roundRobinSelector{curr: -1},
+			}
 			b.SetParallelism(10)
 			b.RunParallel(func(pb *testing.PB) {
 				c, err := pool.Next()
@@ -291,6 +295,10 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 		})
 
 		b.Run("Parallel (100)", func(b *testing.B) {
+			pool := &statusConnectionPool{
+				live:     slices.Clone(conns),
+				selector: &roundRobinSelector{curr: -1},
+			}
 			b.SetParallelism(100)
 			b.RunParallel(func(pb *testing.PB) {
 				c, err := pool.Next()

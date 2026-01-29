@@ -22,11 +22,12 @@ package elastictransport
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -42,14 +43,16 @@ func TestDiscovery(t *testing.T) {
 			http.Error(w, fmt.Sprintf("Fixture error: %s", err), 500)
 			return
 		}
-		io.Copy(w, f)
+		if _, err := io.Copy(w, f); err != nil {
+			http.Error(w, fmt.Sprintf("Fixture error: %s", err), 500)
+		}
 	}
 
 	srv := &http.Server{Addr: "localhost:10001", Handler: http.HandlerFunc(defaultHandler)}
 	srvTLS := &http.Server{Addr: "localhost:12001", Handler: http.HandlerFunc(defaultHandler)}
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			t.Errorf("Unable to start server: %s", err)
 			return
 		}
@@ -60,8 +63,8 @@ func TestDiscovery(t *testing.T) {
 			return
 		}
 	}()
-	defer func() { srv.Close() }()
-	defer func() { srvTLS.Close() }()
+	defer func() { _ = srv.Close() }()
+	defer func() { _ = srvTLS.Close() }()
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -93,7 +96,7 @@ func TestDiscovery(t *testing.T) {
 		u, _ := url.Parse("http://" + srv.Addr)
 		tp, _ := New(Config{URLs: []*url.URL{u}})
 
-		nodes, err := tp.getNodesInfo(t.Context())
+		nodes, err := tp.getNodesInfo(context.Background())
 		if err != nil {
 			t.Fatalf("ERROR: %s", err)
 		}
@@ -114,7 +117,7 @@ func TestDiscovery(t *testing.T) {
 			},
 		}})
 
-		nodes, err := tp.getNodesInfo(t.Context())
+		nodes, err := tp.getNodesInfo(context.Background())
 		if err != nil {
 			t.Fatalf("ERROR: %s", err)
 		}
@@ -131,7 +134,7 @@ func TestDiscovery(t *testing.T) {
 		u, _ := url.Parse("http://" + srv.Addr)
 		tp, _ := New(Config{URLs: []*url.URL{u}})
 
-		_ = tp.DiscoverNodesContext(t.Context())
+		_ = tp.DiscoverNodesContext(context.Background())
 
 		pool, ok := tp.pool.(*statusConnectionPool)
 		if !ok {
@@ -171,7 +174,7 @@ func TestDiscovery(t *testing.T) {
 			},
 		})
 
-		_ = tp.DiscoverNodesContext(t.Context())
+		_ = tp.DiscoverNodesContext(context.Background())
 
 		pool, ok := tp.pool.(*statusConnectionPool)
 		if !ok {
@@ -383,12 +386,11 @@ func TestDiscovery(t *testing.T) {
 					Http  Http     `json:"http"`
 				}
 
-				var names []string
 				var urls []*url.URL
-				for name, node := range tt.args.Nodes {
+				for _, node := range tt.args.Nodes {
 					u, _ := url.Parse(node.URL)
 					urls = append(urls, u)
-					names = append(names, name)
+
 				}
 
 				newRoundTripper := func() http.RoundTripper {
@@ -410,8 +412,8 @@ func TestDiscovery(t *testing.T) {
 								Status:        "200 OK",
 								StatusCode:    200,
 								ContentLength: int64(len(b)),
-								Header:        http.Header(map[string][]string{"Content-Type": {"application/json"}}),
-								Body:          ioutil.NopCloser(bytes.NewReader(b)),
+								Header:        map[string][]string{"Content-Type": {"application/json"}},
+								Body:          io.NopCloser(bytes.NewReader(b)),
 							}, nil
 						},
 					}
@@ -421,7 +423,7 @@ func TestDiscovery(t *testing.T) {
 					URLs:      urls,
 					Transport: newRoundTripper(),
 				})
-				_ = c.DiscoverNodesContext(t.Context())
+				_ = c.DiscoverNodesContext(context.Background())
 
 				pool, ok := c.pool.(*statusConnectionPool)
 				if !ok {
@@ -438,7 +440,7 @@ func TestDiscovery(t *testing.T) {
 					}
 				}
 
-				if err := c.DiscoverNodesContext(t.Context()); (err != nil) != tt.want.wantErr {
+				if err := c.DiscoverNodesContext(context.Background()); (err != nil) != tt.want.wantErr {
 					t.Errorf("DiscoverNodes() error = %v, wantErr %v", err, tt.want.wantErr)
 				}
 			})

@@ -21,7 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -70,7 +70,7 @@ func (c *Client) DiscoverNodesContext(ctx context.Context) error {
 	nodes, err := c.getNodesInfo(ctx)
 	if err != nil {
 		if debugLogger != nil {
-			debugLogger.Logf("Error getting nodes info: %s\n", err)
+			_ = debugLogger.Logf("Error getting nodes info: %s\n", err)
 		}
 		return fmt.Errorf("discovery: get nodes: %w", err)
 	}
@@ -92,7 +92,7 @@ func (c *Client) DiscoverNodesContext(ctx context.Context) error {
 			if isMasterOnlyNode {
 				skip = "; [SKIP]"
 			}
-			debugLogger.Logf("Discovered node [%s]; %s; roles=%s%s\n", node.Name, node.URL, node.Roles, skip)
+			_ = debugLogger.Logf("Discovered node [%s]; %s; roles=%s%s\n", node.Name, node.URL, node.Roles, skip)
 		}
 
 		// Skip master only nodes
@@ -125,7 +125,7 @@ func (c *Client) DiscoverNodesContext(ctx context.Context) error {
 			err = p.Update(conns)
 			if err != nil {
 				if debugLogger != nil {
-					debugLogger.Logf("Error updating pool: %s\n", err)
+					_ = debugLogger.Logf("Error updating pool: %s\n", err)
 				}
 			}
 		} else {
@@ -173,10 +173,17 @@ func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
 	if err != nil {
 		return out, err
 	}
-	defer res.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			if debugLogger != nil {
+				_ = debugLogger.Logf("Error closing response body: %s\n", err)
+			}
+		}
+	}(res.Body)
 
 	if res.StatusCode > 200 {
-		body, _ := ioutil.ReadAll(res.Body)
+		body, _ := io.ReadAll(res.Body)
 		return out, fmt.Errorf("server error: %s: %s", res.Status, body)
 	}
 
@@ -245,7 +252,9 @@ func (c *Client) scheduleDiscoverNodes(d time.Duration) {
 					ctx, cancel := context.WithTimeout(ctx, d)
 					defer cancel()
 					if err := c.DiscoverNodesContext(ctx); err != nil {
-						// TODO: handle error
+						if debugLogger != nil {
+							_ = debugLogger.Logf("Error discovering nodes: %s\n", err)
+						}
 					}
 				}()
 			}
