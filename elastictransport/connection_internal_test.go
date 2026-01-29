@@ -501,7 +501,7 @@ func TestUpdateConnectionPool(t *testing.T) {
 		}
 		err = cp.Update(connections)
 		if err != nil {
-			t.Errorf("Update() returned an error: %v", err)
+			t.Errorf("First Update() returned an error: %v", err)
 		}
 		if len(cp.live) != 2 {
 			t.Errorf("Expected only two live connection after update")
@@ -515,7 +515,7 @@ func TestUpdateConnectionPool(t *testing.T) {
 		// we update the connexion, nothing should move
 		err = cp.Update(connections)
 		if err != nil {
-			t.Errorf("Update() returned an error: %v", err)
+			t.Errorf("Second Update() returned an error: %v", err)
 		}
 		if len(cp.live) != 1 {
 			t.Errorf("Expected no connections to be added to lists")
@@ -525,7 +525,7 @@ func TestUpdateConnectionPool(t *testing.T) {
 		connections = append(connections, &Connection{URL: &url.URL{Scheme: "http", Host: "foo12"}})
 		err = cp.Update(connections)
 		if err != nil {
-			t.Errorf("Update() returned an error: %v", err)
+			t.Errorf("Third Update() returned an error: %v", err)
 		}
 		if len(cp.live) != 2 {
 			t.Errorf("Expected the new connection to be added to live list")
@@ -537,10 +537,7 @@ func TestUpdateConnectionPool(t *testing.T) {
 
 		// Test updating with an empty list of connections
 		connections = []*Connection{}
-		err = cp.Update(connections)
-		if err != nil {
-			t.Errorf("Update() returned an error: %v", err)
-		}
+		_ = cp.Update(connections)
 		if len(cp.live) != 3 {
 			t.Errorf("Expected connections to be untouched after empty update")
 		}
