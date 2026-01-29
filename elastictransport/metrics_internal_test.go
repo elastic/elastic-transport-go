@@ -110,6 +110,118 @@ func TestMetrics(t *testing.T) {
 			t.Errorf("Unexpected output: %s", m)
 		}
 	})
+
+	t.Run("Retry metrics tracking", func(t *testing.T) {
+		var attemptCount int
+		expectedRetries := 2
+
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					attemptCount++
+					fmt.Printf("Attempt #%d", attemptCount)
+					if attemptCount <= expectedRetries {
+						fmt.Print(": ERR\n")
+						return nil, &mockNetError{error: fmt.Errorf("Mock network error (%d)", attemptCount)}
+					}
+					fmt.Print(": OK\n")
+					return &http.Response{Status: "200 OK", StatusCode: 200}, nil
+				},
+			},
+			EnableMetrics: true,
+		})
+
+		req, _ := http.NewRequest("GET", "/test", nil)
+		res, err := tp.Perform(req)
+
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		if res.StatusCode != 200 {
+			t.Errorf("Unexpected response status: %d", res.StatusCode)
+		}
+
+		// Verify metrics
+		metrics, err := tp.Metrics()
+		if err != nil {
+			t.Fatalf("Failed to get metrics: %s", err)
+		}
+
+		if metrics.Requests != 1 {
+			t.Errorf("Expected 1 request, got %d", metrics.Requests)
+		}
+
+		if metrics.Retries != expectedRetries {
+			t.Errorf("Expected %d retries, got %d", expectedRetries, metrics.Retries)
+		}
+
+		if metrics.Failures != expectedRetries {
+			t.Errorf("Expected %d failures, got %d", expectedRetries, metrics.Failures)
+		}
+
+		// Verify the string representation includes retries
+		metricsStr := metrics.String()
+		expectedSubstring := fmt.Sprintf("Retries:%d", expectedRetries)
+		if !regexp.MustCompile(expectedSubstring).MatchString(metricsStr) {
+			t.Errorf("Expected metrics string to contain '%s', got: %s", expectedSubstring, metricsStr)
+		}
+
+		fmt.Printf("Final metrics: %s\n", metricsStr)
+	})
+
+	t.Run("No retry metrics when retries disabled", func(t *testing.T) {
+		var attemptCount int
+
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					attemptCount++
+					fmt.Printf("Attempt #%d", attemptCount)
+					if attemptCount == 1 {
+						fmt.Print(": ERR\n")
+						return nil, &mockNetError{error: fmt.Errorf("Mock network error (%d)", attemptCount)}
+					}
+					fmt.Print(": OK\n")
+					return &http.Response{Status: "200 OK", StatusCode: 200}, nil
+				},
+			},
+			EnableMetrics: true,
+			DisableRetry:  true, // Retries disabled
+		})
+
+		req, _ := http.NewRequest("GET", "/test", nil)
+		_, err := tp.Perform(req)
+
+		// Should fail since retries are disabled
+		if err == nil {
+			t.Fatalf("Expected error due to disabled retries")
+		}
+
+		// Verify metrics - should show 1 failure but 0 retries
+		metrics, err := tp.Metrics()
+		if err != nil {
+			t.Fatalf("Failed to get metrics: %s", err)
+		}
+
+		if metrics.Requests != 1 {
+			t.Errorf("Expected 1 request, got %d", metrics.Requests)
+		}
+
+		if metrics.Retries != 0 {
+			t.Errorf("Expected 0 retries when disabled, got %d", metrics.Retries)
+		}
+
+		if metrics.Failures != 1 {
+			t.Errorf("Expected 1 failure, got %d", metrics.Failures)
+		}
+
+		fmt.Printf("Final metrics (retries disabled): %s\n", metrics.String())
+	})
 }
 
 func TestTransportPerformAndReadMetricsResponses(t *testing.T) {
