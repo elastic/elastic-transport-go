@@ -102,3 +102,13 @@
 
 - name: "autorelease: tagged"
   color: "#ededed"
+
+- name: "apidiff: release"
+  aliases:
+    - "apidiff"
+  color: "#5319e7"
+  description: "Run apidiff API compatibility checks on PRs vs previous release"
+
+- name: "apidiff: pr"
+  color: "#5319e7"
+  description: "Run apidiff API compatibility checks on PRs vs working tree"
