@@ -1,5 +1,13 @@
 # Changelog
 
+## [8.8.1](https://github.com/elastic/elastic-transport-go/compare/v8.8.0...v8.8.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* Linting rules satisfied ([793a813](https://github.com/elastic/elastic-transport-go/commit/793a813e30672258631f0043950a8fd4f6a09cef))
+* Remove deprecated code ([#53](https://github.com/elastic/elastic-transport-go/issues/53)) ([793a813](https://github.com/elastic/elastic-transport-go/commit/793a813e30672258631f0043950a8fd4f6a09cef))
+
 ## [8.8.0](https://github.com/elastic/elastic-transport-go/compare/v8.7.0...v8.8.0) (2025-11-19)
 
 
