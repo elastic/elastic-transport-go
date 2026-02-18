@@ -40,6 +40,7 @@ type connectionable interface {
 type Metrics struct {
 	Requests  int         `json:"requests"`
 	Failures  int         `json:"failures"`
+	Retries   int         `json:"retries"`
 	Responses map[int]int `json:"responses"`
 
 	Connections []fmt.Stringer `json:"connections"`
@@ -65,6 +66,7 @@ type metrics struct {
 
 	requests  int
 	failures  int
+	retries   int
 	responses map[int]int
 }
 
@@ -84,6 +86,7 @@ func (c *Client) Metrics() (Metrics, error) {
 	m := Metrics{
 		Requests:  c.metrics.requests,
 		Failures:  c.metrics.failures,
+		Retries:   c.metrics.retries,
 		Responses: make(map[int]int, len(c.metrics.responses)),
 	}
 
@@ -138,6 +141,9 @@ func (m Metrics) String() string {
 
 	b.WriteString(" Failures:")
 	b.WriteString(strconv.Itoa(m.Failures))
+
+	b.WriteString(" Retries:")
+	b.WriteString(strconv.Itoa(m.Retries))
 
 	if len(m.Responses) > 0 {
 		b.WriteString(" Responses: ")
