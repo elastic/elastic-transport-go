@@ -494,6 +494,12 @@ func TestGetNodeURL_IPv6(t *testing.T) {
 			scheme:         "http",
 			wantHost:       "localhost:9200",
 		},
+		{
+			name:           "bare hostname:port",
+			publishAddress: "es-node1:9200",
+			scheme:         "http",
+			wantHost:       "es-node1:9200",
+		},
 	}
 
 	for _, tt := range tests {
@@ -520,7 +526,7 @@ func TestDiscoveryIPv6(t *testing.T) {
 			http.Error(w, fmt.Sprintf("Fixture error: %s", err), 500)
 			return
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		if _, err := io.Copy(w, f); err != nil {
 			http.Error(w, fmt.Sprintf("Fixture error: %s", err), 500)
 		}
