@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -207,27 +208,28 @@ func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
 }
 
 func (c *Client) getNodeURL(node nodeInfo, scheme string) *url.URL {
-	var (
-		host string
-		port string
+	addr := node.HTTP.PublishAddress
+	var host string
 
-		addrs = strings.Split(node.HTTP.PublishAddress, "/")
-		ports = strings.Split(node.HTTP.PublishAddress, ":")
-	)
-
-	if len(addrs) > 1 {
-		host = addrs[0]
-	} else {
-		host = strings.Split(addrs[0], ":")[0]
+	// Elasticsearch publish_address may use "hostname/address:port" format.
+	if idx := strings.IndexByte(addr, '/'); idx >= 0 {
+		host = addr[:idx]
+		addr = addr[idx+1:]
 	}
-	port = ports[len(ports)-1]
 
-	u := &url.URL{
+	addrHost, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return &url.URL{Scheme: scheme, Host: addr}
+	}
+
+	if host == "" {
+		host = addrHost
+	}
+
+	return &url.URL{
 		Scheme: scheme,
-		Host:   host + ":" + port,
+		Host:   net.JoinHostPort(host, port),
 	}
-
-	return u
 }
 
 func (c *Client) scheduleDiscoverNodes(d time.Duration) {
