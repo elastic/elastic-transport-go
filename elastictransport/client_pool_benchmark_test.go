@@ -44,14 +44,15 @@ func (t *benchTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	}, nil
 }
 
-// benchmarkPerform exercises Client.Perform at varying parallelism levels.
-// Perform's hot path acquires the client-level pool lock for Next, OnSuccess,
-// and OnFailure -- the lock that changed from Mutex to RWMutex in this branch.
+// benchmarkPerform exercises Client.Perform under varying parallelism factors.
+// The sub-benchmarks vary the value passed to b.SetParallelism, which scales
+// parallel work relative to GOMAXPROCS rather than creating an exact number
+// of goroutines.
 func benchmarkPerform(b *testing.B, name string, client *Client) {
 	b.Helper()
 	b.Run(name, func(b *testing.B) {
 		for _, p := range []int{1, 10, 100, 1000} {
-			b.Run(fmt.Sprintf("goroutines-%d", p), func(b *testing.B) {
+			b.Run(fmt.Sprintf("parallelism-%d", p), func(b *testing.B) {
 				b.SetParallelism(p)
 				b.RunParallel(func(pb *testing.PB) {
 					for pb.Next() {
