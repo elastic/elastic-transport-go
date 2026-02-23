@@ -22,18 +22,10 @@ package elastictransport
 
 import (
 	"fmt"
-	"log"
-	"net/http"
 	"net/url"
 	"slices"
 	"testing"
-
-	_ "net/http/pprof"
 )
-
-func init() {
-	go func() { log.Fatalln(http.ListenAndServe("localhost:6060", nil)) }()
-}
 
 func BenchmarkSingleConnectionPool(b *testing.B) {
 	b.ReportAllocs()
@@ -125,18 +117,6 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 				}
 			})
 		})
-
-		b.Run("Parallel (1000)", func(b *testing.B) {
-			b.SetParallelism(1000)
-			b.RunParallel(func(pb *testing.PB) {
-				for pb.Next() {
-					_, err := pool.Next()
-					if err != nil {
-						b.Errorf("Unexpected error: %v", err)
-					}
-				}
-			})
-		})
 	})
 
 	b.Run("OnFailure()", func(b *testing.B) {
@@ -160,22 +140,6 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 
 		b.Run("Parallel (10)", func(b *testing.B) {
 			b.SetParallelism(10)
-			b.RunParallel(func(pb *testing.PB) {
-				c, err := pool.Next()
-				if err != nil {
-					b.Fatalf("Unexpected error: %s", err)
-				}
-
-				for pb.Next() {
-					if err := pool.OnFailure(c); err != nil {
-						b.Errorf("Unexpected error: %v", err)
-					}
-				}
-			})
-		})
-
-		b.Run("Parallel (100)", func(b *testing.B) {
-			b.SetParallelism(100)
 			b.RunParallel(func(pb *testing.PB) {
 				c, err := pool.Next()
 				if err != nil {
@@ -225,22 +189,6 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 				}
 			})
 		})
-
-		b.Run("Parallel (100)", func(b *testing.B) {
-			b.SetParallelism(100)
-			b.RunParallel(func(pb *testing.PB) {
-				c, err := pool.Next()
-				if err != nil {
-					b.Fatalf("Unexpected error: %s", err)
-				}
-
-				for pb.Next() {
-					if err := pool.OnSuccess(c); err != nil {
-						b.Errorf("Unexpected error: %v", err)
-					}
-				}
-			})
-		})
 	})
 
 	b.Run("resurrect()", func(b *testing.B) {
@@ -274,32 +222,6 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 				selector: &roundRobinSelector{curr: -1},
 			}
 			b.SetParallelism(10)
-			b.RunParallel(func(pb *testing.PB) {
-				c, err := pool.Next()
-				if err != nil {
-					b.Fatalf("Unexpected error: %s", err)
-				}
-				err = pool.OnFailure(c)
-				if err != nil {
-					b.Fatalf("Unexpected error: %s", err)
-				}
-
-				for pb.Next() {
-					pool.Lock()
-					if err := pool.resurrect(c, true); err != nil {
-						b.Errorf("Unexpected error: %v", err)
-					}
-					pool.Unlock()
-				}
-			})
-		})
-
-		b.Run("Parallel (100)", func(b *testing.B) {
-			pool := &statusConnectionPool{
-				live:     slices.Clone(conns),
-				selector: &roundRobinSelector{curr: -1},
-			}
-			b.SetParallelism(100)
 			b.RunParallel(func(pb *testing.PB) {
 				c, err := pool.Next()
 				if err != nil {
