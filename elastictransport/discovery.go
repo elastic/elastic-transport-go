@@ -111,8 +111,8 @@ func (c *Client) DiscoverNodesContext(ctx context.Context) error {
 		})
 	}
 
-	c.Lock()
-	defer c.Unlock()
+	c.poolMu.Lock()
+	defer c.poolMu.Unlock()
 
 	if lockable, ok := c.pool.(sync.Locker); ok {
 		lockable.Lock()
@@ -157,7 +157,7 @@ func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
 		return out, err
 	}
 
-	conn, err := c.pool.Next()
+	conn, err := c.getPool().Next()
 	// TODO(karmi): If no connection is returned, fallback to original URLs
 	if err != nil {
 		return out, err

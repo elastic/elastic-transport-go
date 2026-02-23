@@ -76,7 +76,8 @@ func (c *Client) Metrics() (Metrics, error) {
 	c.metrics.RLock()
 	defer c.metrics.RUnlock()
 
-	if lockable, ok := c.pool.(sync.Locker); ok {
+	pool := c.getPool()
+	if lockable, ok := pool.(sync.Locker); ok {
 		lockable.Lock()
 		defer lockable.Unlock()
 	}
@@ -91,7 +92,7 @@ func (c *Client) Metrics() (Metrics, error) {
 		m.Responses[code] = num
 	}
 
-	if pool, ok := c.pool.(connectionable); ok {
+	if pool, ok := pool.(connectionable); ok {
 		for _, c := range pool.connections() {
 			c.Lock()
 

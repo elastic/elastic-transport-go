@@ -120,7 +120,7 @@ type Config struct {
 
 // Client represents the HTTP client.
 type Client struct {
-	sync.Mutex
+	poolMu sync.RWMutex
 
 	userAgent string
 
@@ -371,8 +371,10 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			shouldCloseBody bool
 		)
 
+		pool := c.getPool()
+
 		// Get connection from the pool
-		conn, err = c.pool.Next()
+		conn, err = pool.Next()
 		if err != nil {
 			if c.logger != nil {
 				c.logRoundTrip(req, nil, err, time.Time{}, time.Duration(0))
@@ -414,7 +416,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			}
 
 			// Report the connection as unsuccessful
-			_ = c.pool.OnFailure(conn)
+			_ = pool.OnFailure(conn)
 
 			// Retry upon decision by the user
 			if !c.disableRetry && (c.retryOnError == nil || c.retryOnError(req, err)) {
@@ -422,7 +424,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			}
 		} else {
 			// Report the connection as successful
-			_ = c.pool.OnSuccess(conn)
+			_ = pool.OnSuccess(conn)
 		}
 
 		if res != nil && c.metrics != nil {
@@ -486,7 +488,16 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 
 // URLs returns a list of transport URLs.
 func (c *Client) URLs() []*url.URL {
-	return c.pool.URLs()
+	return c.getPool().URLs()
+}
+
+// getPool returns the current connection pool under a read lock,
+// safe for concurrent use while DiscoverNodesContext may swap the pool.
+func (c *Client) getPool() ConnectionPool {
+	c.poolMu.RLock()
+	pool := c.pool
+	c.poolMu.RUnlock()
+	return pool
 }
 
 func (c *Client) InstrumentationEnabled() Instrumentation {
@@ -618,7 +629,7 @@ func (c *Client) Close(ctx context.Context) error {
 		wg := sync.WaitGroup{}
 		errChan := make(chan error, 1)
 
-		if closeable, ok := c.pool.(CloseableConnectionPool); ok {
+		if closeable, ok := c.getPool().(CloseableConnectionPool); ok {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()

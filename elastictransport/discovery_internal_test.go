@@ -210,17 +210,17 @@ func TestDiscovery(t *testing.T) {
 
 		tp, _ := New(Config{URLs: []*url.URL{u}, DiscoverNodesInterval: 10 * time.Millisecond})
 
-		tp.Lock()
+		tp.poolMu.RLock()
 		numURLs = len(tp.pool.URLs())
-		tp.Unlock()
+		tp.poolMu.RUnlock()
 		if numURLs != 1 {
 			t.Errorf("Unexpected number of nodes, want=1, got=%d", numURLs)
 		}
 
 		time.Sleep(18 * time.Millisecond) // Wait until (*Client).scheduleDiscoverNodes()
-		tp.Lock()
+		tp.poolMu.RLock()
 		numURLs = len(tp.pool.URLs())
-		tp.Unlock()
+		tp.poolMu.RUnlock()
 		if numURLs != 2 {
 			t.Errorf("Unexpected number of nodes, want=2, got=%d", numURLs)
 		}
@@ -426,9 +426,10 @@ func TestDiscovery(t *testing.T) {
 				})
 				_ = c.DiscoverNodesContext(context.Background())
 
-				pool, ok := c.pool.(*statusConnectionPool)
+				p := c.getPool()
+				pool, ok := p.(*statusConnectionPool)
 				if !ok {
-					t.Fatalf("Unexpected pool, want=statusConnectionPool, got=%T", c.pool)
+					t.Fatalf("Unexpected pool, want=statusConnectionPool, got=%T", p)
 				}
 
 				if len(pool.live) != tt.want.wantsNConn {
