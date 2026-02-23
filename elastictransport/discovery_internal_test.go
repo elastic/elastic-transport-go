@@ -32,6 +32,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"sort"
 	"testing"
 	"time"
 )
@@ -444,6 +445,162 @@ func TestDiscovery(t *testing.T) {
 					t.Errorf("DiscoverNodes() error = %v, wantErr %v", err, tt.want.wantErr)
 				}
 			})
+		}
+	})
+}
+
+func TestGetNodeURL_IPv6(t *testing.T) {
+	c := &Client{}
+
+	tests := []struct {
+		name           string
+		publishAddress string
+		scheme         string
+		wantHost       string
+	}{
+		{
+			name:           "bare IPv6 loopback",
+			publishAddress: "[::1]:9200",
+			scheme:         "http",
+			wantHost:       "[::1]:9200",
+		},
+		{
+			name:           "bare IPv6 global address",
+			publishAddress: "[2001:db8::1]:9200",
+			scheme:         "http",
+			wantHost:       "[2001:db8::1]:9200",
+		},
+		{
+			name:           "hostname/IPv6 address",
+			publishAddress: "ip6host/[2001:db8::1]:9200",
+			scheme:         "https",
+			wantHost:       "ip6host:9200",
+		},
+		{
+			name:           "IPv6 with zone ID",
+			publishAddress: "[fe80::1%25eth0]:9200",
+			scheme:         "http",
+			wantHost:       "[fe80::1%25eth0]:9200",
+		},
+		{
+			name:           "IPv4 still works",
+			publishAddress: "127.0.0.1:9200",
+			scheme:         "http",
+			wantHost:       "127.0.0.1:9200",
+		},
+		{
+			name:           "hostname/IPv4 still works",
+			publishAddress: "localhost/127.0.0.1:9200",
+			scheme:         "http",
+			wantHost:       "localhost:9200",
+		},
+		{
+			name:           "bare hostname:port",
+			publishAddress: "es-node1:9200",
+			scheme:         "http",
+			wantHost:       "es-node1:9200",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node := nodeInfo{}
+			node.HTTP.PublishAddress = tt.publishAddress
+
+			u := c.getNodeURL(node, tt.scheme)
+
+			if u.Host != tt.wantHost {
+				t.Errorf("getNodeURL(%q).Host = %q, want %q", tt.publishAddress, u.Host, tt.wantHost)
+			}
+			if u.Scheme != tt.scheme {
+				t.Errorf("getNodeURL(%q).Scheme = %q, want %q", tt.publishAddress, u.Scheme, tt.scheme)
+			}
+		})
+	}
+}
+
+func TestDiscoveryIPv6(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		f, err := os.Open("testdata/nodes.info.ipv6.json")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Fixture error: %s", err), 500)
+			return
+		}
+		defer func() { _ = f.Close() }()
+		if _, err := io.Copy(w, f); err != nil {
+			http.Error(w, fmt.Sprintf("Fixture error: %s", err), 500)
+		}
+	}
+
+	srv := &http.Server{Addr: "localhost:10011", Handler: http.HandlerFunc(handler)}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			t.Errorf("Unable to start server: %s", err)
+		}
+	}()
+	defer func() { _ = srv.Close() }()
+	time.Sleep(50 * time.Millisecond)
+
+	t.Run("getNodesInfo() with IPv6 publish_address", func(t *testing.T) {
+		u, _ := url.Parse("http://" + srv.Addr)
+		tp, _ := New(Config{URLs: []*url.URL{u}})
+
+		nodes, err := tp.getNodesInfo(context.Background())
+		if err != nil {
+			t.Fatalf("ERROR: %s", err)
+		}
+
+		if len(nodes) != 3 {
+			t.Fatalf("Unexpected number of nodes, want=3, got=%d", len(nodes))
+		}
+
+		for _, node := range nodes {
+			switch node.Name {
+			case "es1":
+				if node.URL.String() != "http://[::1]:10001" {
+					t.Errorf("es1: unexpected URL %q, want %q", node.URL.String(), "http://[::1]:10001")
+				}
+			case "es2":
+				if node.URL.String() != "http://ip6host:10002" {
+					t.Errorf("es2: unexpected URL %q, want %q", node.URL.String(), "http://ip6host:10002")
+				}
+			case "es3":
+				if node.URL.String() != "http://127.0.0.1:10003" {
+					t.Errorf("es3: unexpected URL %q, want %q", node.URL.String(), "http://127.0.0.1:10003")
+				}
+			}
+		}
+	})
+
+	t.Run("DiscoverNodes() with IPv6 publish_address", func(t *testing.T) {
+		u, _ := url.Parse("http://" + srv.Addr)
+		tp, _ := New(Config{URLs: []*url.URL{u}})
+
+		if err := tp.DiscoverNodesContext(context.Background()); err != nil {
+			t.Fatalf("ERROR: %s", err)
+		}
+
+		pool, ok := tp.pool.(*statusConnectionPool)
+		if !ok {
+			t.Fatalf("Unexpected pool type: %T", tp.pool)
+		}
+
+		// es3 is master-only, so only es1 and es2 should be in the pool.
+		if len(pool.live) != 2 {
+			t.Fatalf("Unexpected number of live connections, want=2, got=%d", len(pool.live))
+		}
+
+		urls := make([]string, 0, len(pool.live))
+		for _, conn := range pool.live {
+			urls = append(urls, conn.URL.String())
+		}
+		sort.Strings(urls)
+
+		wantURLs := []string{"http://[::1]:10001", "http://ip6host:10002"}
+		sort.Strings(wantURLs)
+
+		if !reflect.DeepEqual(urls, wantURLs) {
+			t.Errorf("Unexpected pool URLs:\n  got:  %v\n  want: %v", urls, wantURLs)
 		}
 	})
 }
