@@ -102,12 +102,11 @@ func newPooledGzipCompressor(compressionLevel int) gzipCompressor {
 
 func (pg *pooledGzipCompressor) compress(rc io.ReadCloser) (*bytes.Buffer, error) {
 	writer := pg.gzipWriterPool.Get().(*gzipWriter)
-	defer pg.gzipWriterPool.Put(writer)
-
 	if writer.err != nil {
 		return nil, fmt.Errorf("failed setting up up compress request body (level %d): %s",
 			pg.compressionLevel, writer.err)
 	}
+	defer pg.gzipWriterPool.Put(writer)
 
 	buf := pg.bufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
