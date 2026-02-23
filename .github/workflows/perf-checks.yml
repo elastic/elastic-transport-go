@@ -14,62 +14,65 @@ permissions:
   pull-requests: write
 
 jobs:
-  bench:
-    name: "bench (${{ matrix.os }}, ${{ matrix.ref }})"
+  benchstat:
+    name: "benchstat (${{ matrix.os }})"
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        ref: [base, head]
       fail-fast: false
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ matrix.ref == 'base' && github.event.pull_request.base.sha || github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
+
+      - name: Fetch base ref
+        run: git fetch --depth=1 origin ${{ github.event.pull_request.base.sha }}
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
-      - name: Run benchmarks
-        shell: bash
-        run: |
-          set -o pipefail
-          go test -run='^$' -bench=. -benchmem -benchtime=500ms -count=7 ./... | tee "${{ runner.temp }}/bench.txt"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bench-${{ matrix.os }}-${{ matrix.ref }}
-          path: ${{ runner.temp }}/bench.txt
-
-  report:
-    name: "Report results"
-    needs: bench
-    if: ${{ !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/setup-go@v6
-        with:
-          go-version: stable
-
       - name: Install benchstat
         run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20240604174448-3b48cf0e0164
 
+      - name: Run benchmarks on base
+        shell: bash
+        run: |
+          set -o pipefail
+          git checkout ${{ github.event.pull_request.base.sha }}
+          go test -run='^$' -bench=. -benchmem -benchtime=500ms -count=7 ./... | tee "${{ runner.temp }}/base.txt"
+
+      - name: Run benchmarks on head
+        shell: bash
+        run: |
+          set -o pipefail
+          git checkout ${{ github.event.pull_request.head.sha }}
+          go test -run='^$' -bench=. -benchmem -benchtime=500ms -count=7 ./... | tee "${{ runner.temp }}/head.txt"
+
+      - name: Diff benchmarks
+        shell: bash
+        run: |
+          set -o pipefail
+          benchstat "${{ runner.temp }}/base.txt" "${{ runner.temp }}/head.txt" | tee "${{ runner.temp }}/benchstat.txt"
+
+      - name: Upload benchstat results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchstat-${{ matrix.os }}
+          path: ${{ runner.temp }}/benchstat.txt
+
+  report:
+    name: "Report results"
+    needs: benchstat
+    if: ${{ !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
       - uses: actions/download-artifact@v4
         with:
           path: results
-          pattern: bench-*
-
-      - name: Run benchstat
-        run: |
-          for os in ubuntu-latest windows-latest macos-latest; do
-            base="results/bench-${os}-base/bench.txt"
-            head="results/bench-${os}-head/bench.txt"
-            if [ -f "$base" ] && [ -f "$head" ]; then
-              benchstat "$base" "$head" > "results/benchstat-${os}.txt" 2>&1 || true
-            fi
-          done
+          pattern: benchstat-*
 
       - name: Post results
         uses: actions/github-script@v8
@@ -83,7 +86,7 @@ jobs:
             const sections = [];
 
             for (const os of platforms) {
-              const file = path.join('results', `benchstat-${os}.txt`);
+              const file = path.join('results', `benchstat-${os}`, 'benchstat.txt');
               if (fs.existsSync(file)) {
                 const result = fs.readFileSync(file, 'utf8').trim();
                 sections.push(`### ${os}\n\n\`\`\`\n${result}\n\`\`\``);
@@ -99,7 +102,7 @@ jobs:
               '',
               ...sections,
               '',
-              '_Compared using [benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat). Benchmarks were run with `-benchtime=500ms -count=7` on matched runner classes._',
+              '_Compared using [benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat). Benchmarks were run with `-benchtime=500ms -count=7` on the same runner for a fair comparison._',
             ].join('\n');
 
             const comments = await github.paginate(
