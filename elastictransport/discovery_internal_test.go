@@ -680,3 +680,43 @@ func TestDiscoverNodesContextLeavesPoolUntouchedOnEmptyDiscoveredSet(t *testing.
 		})
 	}
 }
+
+func TestDiscoverNodesContextReturnsErrClosedWhenClosedOnEmptyDiscoveredSet(t *testing.T) {
+	makeResponse := func(body []byte) *http.Response {
+		return &http.Response{
+			Status:        "200 OK",
+			StatusCode:    200,
+			ContentLength: int64(len(body)),
+			Header:        map[string][]string{"Content-Type": {"application/json"}},
+			Body:          io.NopCloser(bytes.NewReader(body)),
+		}
+	}
+
+	// Master-only payload yields an empty eligible connection set.
+	payload := []byte(`{
+		"nodes": {
+			"es1": {"roles": ["master"], "http": {"publish_address": "es1:9200"}}
+		}
+	}`)
+
+	u1, _ := url.Parse("http://seed1:9200")
+	u2, _ := url.Parse("http://seed2:9200")
+
+	var tp *Client
+	tp, _ = New(Config{
+		URLs: []*url.URL{u1, u2},
+		Transport: &mockTransp{
+			RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+				if err := tp.Close(context.Background()); err != nil {
+					return nil, err
+				}
+				return makeResponse(payload), nil
+			},
+		},
+	})
+
+	err := tp.DiscoverNodesContext(context.Background())
+	if !errors.Is(err, ErrClosed) {
+		t.Fatalf("DiscoverNodesContext() error mismatch, want=%v, got=%v", ErrClosed, err)
+	}
+}

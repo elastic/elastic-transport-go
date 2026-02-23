@@ -111,18 +111,18 @@ func (c *Client) DiscoverNodesContext(ctx context.Context) error {
 		})
 	}
 
-	if len(conns) == 0 {
-		if debugLogger != nil {
-			_ = debugLogger.Logf("No eligible nodes discovered; pool left untouched\n")
-		}
-		return nil
-	}
-
 	c.poolMu.Lock()
 	defer c.poolMu.Unlock()
 
 	if c.isClosed() {
 		return ErrClosed
+	}
+
+	if len(conns) == 0 {
+		if debugLogger != nil {
+			_ = debugLogger.Logf("No eligible nodes discovered; pool left untouched\n")
+		}
+		return nil
 	}
 
 	if p, ok := c.pool.(UpdatableConnectionPool); ok {
