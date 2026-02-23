@@ -109,6 +109,10 @@ type Config struct {
 	Logger    Logger
 	Selector  Selector
 
+	// ConnectionPoolFunc, when set, is called to create the initial pool and
+	// to replace it on discovery when the pool does not implement
+	// UpdatableConnectionPool. Pools that support in-place updates are
+	// updated directly and this function is not called again.
 	ConnectionPoolFunc func([]*Connection, Selector) ConnectionPool
 
 	CertificateFingerprint string

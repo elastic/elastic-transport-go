@@ -239,9 +239,12 @@ func (cp *statusConnectionPool) OnFailure(c *Connection) error {
 	return nil
 }
 
-// Update merges the existing live and dead connections with the latest nodes discovered from the cluster.
-// ConnectionPool must be locked before calling.
+// Update merges the existing live and dead connections with the latest
+// nodes discovered from the cluster. Safe for concurrent use.
 func (cp *statusConnectionPool) Update(connections []*Connection) error {
+	cp.Lock()
+	defer cp.Unlock()
+
 	if len(connections) == 0 {
 		return errors.New("no connections provided, connection pool left untouched")
 	}

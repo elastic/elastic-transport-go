@@ -111,29 +111,30 @@ func (c *Client) DiscoverNodesContext(ctx context.Context) error {
 		})
 	}
 
+	// Fast path: update in place — no poolMu write lock needed.
+	// Takes priority over poolFunc: if the current pool supports
+	// in-place updates, we prefer that over replacing the pool.
+	pool := c.getPool()
+	if updatable, ok := pool.(UpdatableConnectionPool); ok {
+		err = updatable.Update(conns)
+		if err != nil {
+			if debugLogger != nil {
+				_ = debugLogger.Logf("Error updating pool: %s\n", err)
+			}
+		}
+		return nil
+	}
+
+	// Slow path: replace pool pointer — requires poolMu write lock
 	c.poolMu.Lock()
 	defer c.poolMu.Unlock()
-
-	if lockable, ok := c.pool.(sync.Locker); ok {
-		lockable.Lock()
-		defer lockable.Unlock()
-	}
 
 	if c.poolFunc != nil {
 		c.pool = c.poolFunc(conns, c.selector)
 	} else {
-		if p, ok := c.pool.(UpdatableConnectionPool); ok {
-			err = p.Update(conns)
-			if err != nil {
-				if debugLogger != nil {
-					_ = debugLogger.Logf("Error updating pool: %s\n", err)
-				}
-			}
-		} else {
-			c.pool, err = NewConnectionPool(conns, c.selector)
-			if err != nil {
-				return err
-			}
+		c.pool, err = NewConnectionPool(conns, c.selector)
+		if err != nil {
+			return err
 		}
 	}
 
