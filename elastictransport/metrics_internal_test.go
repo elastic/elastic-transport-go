@@ -21,10 +21,16 @@
 package elastictransport
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -144,4 +150,95 @@ func TestTransportPerformAndReadMetricsResponses(t *testing.T) {
 		ch <- struct{}{}
 		close(ch)
 	})
+}
+
+func TestMetricsConcurrentWithDiscoverNodes(t *testing.T) {
+	makeResponse := func(body []byte) *http.Response {
+		return &http.Response{
+			Status:        "200 OK",
+			StatusCode:    200,
+			ContentLength: int64(len(body)),
+			Header:        map[string][]string{"Content-Type": {"application/json"}},
+			Body:          io.NopCloser(bytes.NewReader(body)),
+		}
+	}
+
+	buildNodesPayload := func(nodes map[string]string) []byte {
+		type nodeHTTP struct {
+			PublishAddress string `json:"publish_address"`
+		}
+		type node struct {
+			Roles []string `json:"roles"`
+			HTTP  nodeHTTP `json:"http"`
+		}
+		payload := map[string]map[string]node{"nodes": {}}
+		for id, addr := range nodes {
+			payload["nodes"][id] = node{
+				Roles: []string{"data", "master"},
+				HTTP:  nodeHTTP{PublishAddress: addr},
+			}
+		}
+		b, _ := json.Marshal(payload)
+		return b
+	}
+
+	payloads := [][]byte{
+		buildNodesPayload(map[string]string{
+			"es1": "es1:9200",
+			"es2": "es2:9200",
+		}),
+		buildNodesPayload(map[string]string{
+			"es1": "es1:9200",
+			"es2": "es2:9200",
+			"es3": "es3:9200",
+		}),
+	}
+
+	var n uint64
+	u1, _ := url.Parse("http://seed1:9200")
+	u2, _ := url.Parse("http://seed2:9200")
+	tp, _ := New(Config{
+		EnableMetrics: true,
+		URLs:          []*url.URL{u1, u2},
+		Transport: &mockTransp{
+			RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+				idx := atomic.AddUint64(&n, 1) % uint64(len(payloads))
+				return makeResponse(payloads[idx]), nil
+			},
+		},
+	})
+
+	errCh := make(chan error, 2)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 400; i++ {
+			if err := tp.DiscoverNodesContext(context.Background()); err != nil {
+				errCh <- fmt.Errorf("discover nodes failed: %w", err)
+				return
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 3000; i++ {
+			m, err := tp.Metrics()
+			if err != nil {
+				errCh <- fmt.Errorf("read metrics failed: %w", err)
+				return
+			}
+			_ = len(m.Connections)
+		}
+	}()
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Fatal(err)
+	}
 }
