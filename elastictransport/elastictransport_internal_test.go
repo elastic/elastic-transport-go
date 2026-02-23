@@ -1384,6 +1384,109 @@ func TestClose(t *testing.T) {
 	})
 }
 
+func TestDrainErrChan(t *testing.T) {
+	t.Run("closed empty channel returns nil", func(t *testing.T) {
+		ch := make(chan error, 1)
+		close(ch)
+		if err := drainErrChan(ch); err != nil {
+			t.Fatalf("Expected nil, got %s", err)
+		}
+	})
+
+	t.Run("closed channel with one error", func(t *testing.T) {
+		ch := make(chan error, 1)
+		ch <- fmt.Errorf("pool error")
+		close(ch)
+		err := drainErrChan(ch)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "pool error") {
+			t.Fatalf("Expected 'pool error', got %s", err)
+		}
+	})
+
+	t.Run("closed channel with multiple errors", func(t *testing.T) {
+		ch := make(chan error, 3)
+		ch <- fmt.Errorf("error one")
+		ch <- fmt.Errorf("error two")
+		ch <- fmt.Errorf("error three")
+		close(ch)
+		err := drainErrChan(ch)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		for _, msg := range []string{"error one", "error two", "error three"} {
+			if !strings.Contains(err.Error(), msg) {
+				t.Fatalf("Expected error to contain %q, got %s", msg, err)
+			}
+		}
+	})
+}
+
+func TestCloseTimeoutWithPoolError(t *testing.T) {
+	t.Run("Close should return pool error on context timeout", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return nil, fmt.Errorf("error")
+				},
+			},
+			ConnectionPoolFunc: func(connections []*Connection, selector Selector) ConnectionPool {
+				return &mockConnectionPool{func(ctx context.Context) error {
+					time.Sleep(50 * time.Millisecond)
+					return fmt.Errorf("slow pool error")
+				}}
+			},
+		})
+
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		err := tp.Close(ctx)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "slow pool error") {
+			t.Fatalf("Expected error to contain 'slow pool error', got %s", err)
+		}
+	})
+
+	t.Run("Close should return only context error when pool has not errored yet", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		blocker := make(chan struct{})
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return nil, fmt.Errorf("error")
+				},
+			},
+			ConnectionPoolFunc: func(connections []*Connection, selector Selector) ConnectionPool {
+				return &mockConnectionPool{func(ctx context.Context) error {
+					<-blocker
+					return fmt.Errorf("late pool error")
+				}}
+			},
+		})
+		defer close(blocker)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+		defer cancel()
+		err := tp.Close(ctx)
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Expected context.DeadlineExceeded, got %s", err)
+		}
+		if strings.Contains(err.Error(), "late pool error") {
+			t.Fatal("Did not expect pool error to be included when pool hasn't returned yet")
+		}
+	})
+}
+
 type mockConnectionPool struct {
 	CloseFunc func(context.Context) error
 }
