@@ -634,6 +634,8 @@ func (c *Client) Close(ctx context.Context) error {
 					errChan <- fmt.Errorf("failed to close connection pool: %w", err)
 				}
 			}()
+		} else {
+			close(errChan)
 		}
 
 		wg.Add(1)
@@ -652,7 +654,12 @@ func (c *Client) Close(ctx context.Context) error {
 		case <-done:
 			return drainErrChan(errChan)
 		case <-ctx.Done():
-			return errors.Join(ctx.Err(), drainErrChan(errChan))
+			select {
+			case e := <-errChan:
+				return errors.Join(ctx.Err(), e)
+			default:
+				return ctx.Err()
+			}
 		}
 	} else {
 		return ErrAlreadyClosed
@@ -661,17 +668,10 @@ func (c *Client) Close(ctx context.Context) error {
 
 func drainErrChan(ch <-chan error) error {
 	var err error
-	for {
-		select {
-		case errC, open := <-ch:
-			if !open {
-				return err
-			}
-			err = errors.Join(err, errC)
-		default:
-			return err
-		}
+	for e := range ch {
+		err = errors.Join(err, e)
 	}
+	return err
 }
 
 // ErrClosed is returned when the transport is closed.
