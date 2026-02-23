@@ -60,7 +60,9 @@ func benchmarkPerform(b *testing.B, name string, client *Client) {
 						if err != nil {
 							b.Fatalf("Perform: %s", err)
 						}
-						res.Body.Close()
+						if err := res.Body.Close(); err != nil {
+							b.Fatalf("Close response body: %s", err)
+						}
 					}
 				})
 			})
