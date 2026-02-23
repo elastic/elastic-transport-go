@@ -433,6 +433,9 @@ func TestTransportPerform(t *testing.T) {
 			if req.Header.Get("X-Foo") != "baz" {
 				t.Errorf("Unexpected global HTTP request header value: %s", req.Header.Get("X-Foo"))
 			}
+			if n := len(req.Header.Values("X-Foo")); n != 1 {
+				t.Errorf("Expected 1 header value, got %d", n)
+			}
 		}
 	})
 
