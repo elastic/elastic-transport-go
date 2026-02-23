@@ -42,14 +42,14 @@ jobs:
         run: |
           set -o pipefail
           git checkout ${{ github.event.pull_request.base.sha }}
-          go test -run='^$' -bench=. -benchmem -benchtime=500ms -count=5 ./... | tee "${{ runner.temp }}/base.txt"
+          go test -run='^$' -bench=. -benchmem -benchtime=500ms -count=7 ./... | tee "${{ runner.temp }}/base.txt"
 
       - name: Run benchmarks on PR branch
         shell: bash
         run: |
           set -o pipefail
           git checkout ${{ github.event.pull_request.head.sha }}
-          go test -run='^$' -bench=. -benchmem -benchtime=500ms -count=5 ./... | tee "${{ runner.temp }}/pr.txt"
+          go test -run='^$' -bench=. -benchmem -benchtime=500ms -count=7 ./... | tee "${{ runner.temp }}/pr.txt"
 
       - name: Diff benchmarks
         shell: bash
