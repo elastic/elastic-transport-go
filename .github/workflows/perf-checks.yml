@@ -1,0 +1,87 @@
+name: Benchmark
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  benchstat:
+    name: "benchstat"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.x"
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run benchmarks on main
+        run: |
+          git checkout origin/main
+          go test -run='^$' -bench=. -benchmem -count=6 ./... | tee /tmp/main.txt
+
+      - name: Run benchmarks on PR branch
+        run: |
+          git checkout ${{ github.event.pull_request.head.sha }}
+          go test -run='^$' -bench=. -benchmem -count=6 ./... | tee /tmp/pr.txt
+
+      - name: Diff benchmarks
+        run: benchstat /tmp/main.txt /tmp/pr.txt | tee /tmp/benchstat.txt
+
+      - name: Post results
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const result = fs.readFileSync('/tmp/benchstat.txt', 'utf8').trim();
+
+            const marker = '<!-- benchstat-comment -->';
+            const body = [
+              marker,
+              '## Benchmark Results',
+              '',
+              '```',
+              result,
+              '```',
+              '',
+              '_Compared using [benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat). Benchmarks ran `-count=6` on the same runner for a fair comparison._',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
