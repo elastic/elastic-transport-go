@@ -40,7 +40,12 @@ func decompressGzip(t *testing.T, buf *bytes.Buffer) string {
 	if err != nil {
 		t.Fatalf("failed to create gzip reader: %s", err)
 	}
-	defer zr.Close()
+	defer func() {
+		closeErr := zr.Close()
+		if closeErr != nil {
+			t.Fatalf("failed to close gzip reader: %s", closeErr)
+		}
+	}()
 	var out bytes.Buffer
 	if _, err := io.Copy(&out, zr); err != nil {
 		t.Fatalf("failed to decompress gzip data: %s", err)
