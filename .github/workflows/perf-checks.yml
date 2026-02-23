@@ -31,7 +31,8 @@ jobs:
 
       - name: Run benchmarks on main
         run: |
-          git checkout origin/main
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git checkout origin/${{ github.event.pull_request.base.ref }}
           go test -run='^$' -bench=. -benchmem -count=6 ./... | tee /tmp/main.txt
 
       - name: Run benchmarks on PR branch
@@ -40,7 +41,9 @@ jobs:
           go test -run='^$' -bench=. -benchmem -count=6 ./... | tee /tmp/pr.txt
 
       - name: Diff benchmarks
-        run: benchstat /tmp/main.txt /tmp/pr.txt | tee /tmp/benchstat.txt
+        run: |
+          set -o pipefail
+          benchstat /tmp/main.txt /tmp/pr.txt | tee /tmp/benchstat.txt
 
       - name: Post results
         if: github.event.pull_request.head.repo.full_name == github.repository
@@ -62,11 +65,14 @@ jobs:
               '_Compared using [benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat). Benchmarks ran `-count=6` on the same runner for a fair comparison._',
             ].join('\n');
 
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+              },
+            );
 
             const existing = comments.find(c => c.body?.includes(marker));
 
