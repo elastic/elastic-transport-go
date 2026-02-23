@@ -15,89 +15,67 @@ permissions:
 
 jobs:
   benchstat:
-    name: "benchstat (${{ matrix.os }})"
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-      fail-fast: false
+    name: "benchstat"
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Fetch base ref
+        run: git fetch --depth=1 origin ${{ github.event.pull_request.base.sha }}
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
       - name: Install benchstat
-        run: go install golang.org/x/perf/cmd/benchstat@latest
+        run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20240604174448-3b48cf0e0164
 
-      - name: Run benchmarks on main
-        shell: bash
+      - name: Run benchmarks on base
         run: |
           set -o pipefail
-          git fetch origin ${{ github.event.pull_request.base.ref }}
-          git checkout origin/${{ github.event.pull_request.base.ref }}
-          go test -run='^$' -bench=. -benchmem -count=6 ./... | tee "${{ runner.temp }}/main.txt"
+          git checkout ${{ github.event.pull_request.base.sha }}
+          go test -run='^$' -bench=. -benchmem -count=6 ./... | tee "${{ runner.temp }}/base.txt"
 
       - name: Run benchmarks on PR branch
-        shell: bash
         run: |
           set -o pipefail
           git checkout ${{ github.event.pull_request.head.sha }}
           go test -run='^$' -bench=. -benchmem -count=6 ./... | tee "${{ runner.temp }}/pr.txt"
 
       - name: Diff benchmarks
-        shell: bash
         run: |
           set -o pipefail
-          benchstat "${{ runner.temp }}/main.txt" "${{ runner.temp }}/pr.txt" | tee "${{ runner.temp }}/benchstat.txt"
+          benchstat "${{ runner.temp }}/base.txt" "${{ runner.temp }}/pr.txt" | tee "${{ runner.temp }}/benchstat.txt"
 
       - name: Upload benchstat results
         uses: actions/upload-artifact@v4
         with:
-          name: benchstat-${{ matrix.os }}
+          name: benchstat
           path: ${{ runner.temp }}/benchstat.txt
 
-  report:
-    name: "Report results"
-    needs: benchstat
-    if: ${{ !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: results
-          pattern: benchstat-*
-
       - name: Post results
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const path = require('path');
 
-            const platforms = ['ubuntu-latest', 'windows-latest', 'macos-latest'];
-            const sections = [];
-
-            for (const os of platforms) {
-              const file = path.join('results', `benchstat-${os}`, 'benchstat.txt');
-              if (fs.existsSync(file)) {
-                const result = fs.readFileSync(file, 'utf8').trim();
-                sections.push(`### ${os}\n\n\`\`\`\n${result}\n\`\`\``);
-              } else {
-                sections.push(`### ${os}\n\n_Benchmarks did not complete._`);
-              }
-            }
+            const result = fs.readFileSync(
+              process.env.RUNNER_TEMP + '/benchstat.txt', 'utf8',
+            ).trim();
 
             const marker = '<!-- benchstat-comment -->';
             const body = [
               marker,
               '## Benchmark Results',
               '',
-              ...sections,
+              '```',
+              result,
+              '```',
               '',
               '_Compared using [benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat). Benchmarks were run with `-count=6` on the same runner for a fair comparison._',
             ].join('\n');
