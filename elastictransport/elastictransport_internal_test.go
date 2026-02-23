@@ -1439,20 +1439,26 @@ func TestCloseTimeoutWithPoolError(t *testing.T) {
 			},
 			ConnectionPoolFunc: func(connections []*Connection, selector Selector) ConnectionPool {
 				return &mockConnectionPool{func(ctx context.Context) error {
-					time.Sleep(50 * time.Millisecond)
-					return fmt.Errorf("slow pool error")
+					return fmt.Errorf("pool close error")
 				}}
 			},
 		})
 
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		// Block the done channel so the ctx.Done() path is taken.
+		tp.discoverWaitGroup.Add(1)
+		defer tp.discoverWaitGroup.Done()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
 		err := tp.Close(ctx)
 		if err == nil {
 			t.Fatal("Expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "slow pool error") {
-			t.Fatalf("Expected error to contain 'slow pool error', got %s", err)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Expected context.DeadlineExceeded, got %s", err)
+		}
+		if !strings.Contains(err.Error(), "pool close error") {
+			t.Fatalf("Expected error to contain 'pool close error', got %s", err)
 		}
 	})
 
