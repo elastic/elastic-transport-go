@@ -718,6 +718,161 @@ func TestCloseConnectionPool(t *testing.T) {
 	})
 }
 
+func TestSynchronizedPoolCloseDoesNotBlockOnFailure(t *testing.T) {
+	t.Run("Close should not block OnFailure", func(t *testing.T) {
+		closeStarted := make(chan struct{}, 1)
+		closeUnblock := make(chan struct{})
+		onFailureCalled := make(chan struct{}, 1)
+
+		conn := &Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}}
+		pool := &blockingCloseConnectionPool{
+			conn: conn,
+			onFailureFunc: func(*Connection) error {
+				select {
+				case onFailureCalled <- struct{}{}:
+				default:
+				}
+				return nil
+			},
+			closeStarted: closeStarted,
+			closeUnblock: closeUnblock,
+		}
+
+		wrapped := newSynchronizedPool(pool)
+		sp, ok := wrapped.(*synchronizedPool)
+		if !ok {
+			t.Fatalf("Expected synchronizedPool, got %T", wrapped)
+		}
+
+		closeDone := make(chan error, 1)
+		go func() {
+			closeDone <- sp.Close(context.Background())
+		}()
+
+		select {
+		case <-closeStarted:
+		case <-time.After(time.Second):
+			t.Fatal("Close() did not reach inner pool")
+		}
+
+		onFailureDone := make(chan error, 1)
+		go func() {
+			onFailureDone <- sp.OnFailure(conn)
+		}()
+
+		select {
+		case err := <-onFailureDone:
+			if err != nil {
+				t.Fatalf("OnFailure() returned error: %s", err)
+			}
+		case <-time.After(250 * time.Millisecond):
+			t.Fatal("OnFailure() blocked while Close() is in progress")
+		}
+
+		select {
+		case <-onFailureCalled:
+		case <-time.After(time.Second):
+			t.Fatal("OnFailure() did not reach inner pool")
+		}
+
+		close(closeUnblock)
+
+		select {
+		case err := <-closeDone:
+			if err != nil {
+				t.Fatalf("Close() returned error: %s", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("Close() did not complete after unblocking inner pool")
+		}
+	})
+}
+
+func TestNewSynchronizedPool(t *testing.T) {
+	t.Run("wraps regular pool", func(t *testing.T) {
+		pool := &blockingCloseConnectionPool{
+			conn: &Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+		}
+		wrapped := newSynchronizedPool(pool)
+		if _, ok := wrapped.(*synchronizedPool); !ok {
+			t.Fatalf("Expected synchronizedPool, got %T", wrapped)
+		}
+	})
+
+	t.Run("returns concurrent-safe pool as-is", func(t *testing.T) {
+		pool := &concurrentSafeMockPool{
+			conn: &Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
+		}
+		wrapped := newSynchronizedPool(pool)
+		if wrapped != pool {
+			t.Fatalf("Expected original pool pointer, got %T", wrapped)
+		}
+	})
+}
+
+type blockingCloseConnectionPool struct {
+	conn          *Connection
+	onFailureFunc func(*Connection) error
+	closeStarted  chan<- struct{}
+	closeUnblock  <-chan struct{}
+}
+
+func (p *blockingCloseConnectionPool) Next() (*Connection, error) {
+	return p.conn, nil
+}
+
+func (p *blockingCloseConnectionPool) OnSuccess(*Connection) error {
+	return nil
+}
+
+func (p *blockingCloseConnectionPool) OnFailure(c *Connection) error {
+	if p.onFailureFunc != nil {
+		return p.onFailureFunc(c)
+	}
+	return nil
+}
+
+func (p *blockingCloseConnectionPool) URLs() []*url.URL {
+	if p.conn == nil || p.conn.URL == nil {
+		return nil
+	}
+	return []*url.URL{p.conn.URL}
+}
+
+func (p *blockingCloseConnectionPool) Close(context.Context) error {
+	select {
+	case p.closeStarted <- struct{}{}:
+	default:
+	}
+	<-p.closeUnblock
+	return nil
+}
+
+type concurrentSafeMockPool struct {
+	conn *Connection
+}
+
+func (p *concurrentSafeMockPool) ConcurrentSafe() {}
+
+func (p *concurrentSafeMockPool) Next() (*Connection, error) {
+	return p.conn, nil
+}
+
+func (p *concurrentSafeMockPool) OnSuccess(*Connection) error {
+	return nil
+}
+
+func (p *concurrentSafeMockPool) OnFailure(*Connection) error {
+	return nil
+}
+
+func (p *concurrentSafeMockPool) URLs() []*url.URL {
+	if p.conn == nil || p.conn.URL == nil {
+		return nil
+	}
+	return []*url.URL{p.conn.URL}
+}
+
 func TestNewConnectionPool(t *testing.T) {
 	t.Run("Clones the connection slice", func(t *testing.T) {
 		conns := []*Connection{

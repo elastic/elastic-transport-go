@@ -92,9 +92,11 @@ type Config struct {
 	MaxRetries   int
 	RetryBackoff func(attempt int) time.Duration
 
+	// CompressRequestBody enables gzip compression for request bodies.
 	CompressRequestBody      bool
 	CompressRequestBodyLevel int
-	// If PoolCompressor is true, a sync.Pool based gzip writer is used. Should be enabled with CompressRequestBody.
+	// PoolCompressor enables a sync.Pool based gzip writer.
+	// It should be enabled with CompressRequestBody.
 	PoolCompressor bool
 
 	EnableMetrics     bool
@@ -109,6 +111,13 @@ type Config struct {
 	Logger    Logger
 	Selector  Selector
 
+	// ConnectionPoolFunc creates a custom connection pool.
+	// Pools are synchronized by default; implement
+	// ConcurrentSafeConnectionPool to opt out when your pool is already safe for
+	// concurrent use.
+	// During discovery, if the current pool implements UpdatableConnectionPool,
+	// discovery prefers in-place Update() and this function is only used when
+	// Update() is not available.
 	ConnectionPoolFunc func([]*Connection, Selector) ConnectionPool
 
 	CertificateFingerprint string
@@ -120,7 +129,7 @@ type Config struct {
 
 // Client represents the HTTP client.
 type Client struct {
-	sync.Mutex
+	poolMu sync.RWMutex // protects the pool pointer
 
 	userAgent string
 
@@ -268,7 +277,7 @@ func New(cfg Config) (*Client, error) {
 	}
 
 	if client.poolFunc != nil {
-		client.pool = client.poolFunc(conns, client.selector)
+		client.pool = newSynchronizedPool(client.poolFunc(conns, client.selector))
 	} else {
 		client.pool, _ = NewConnectionPool(conns, client.selector)
 	}
@@ -366,15 +375,14 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 	originalPath := req.URL.Path
 	for i := 0; i <= c.maxRetries; i++ {
 		var (
+			pool            ConnectionPool
 			conn            *Connection
 			shouldRetry     bool
 			shouldCloseBody bool
 		)
 
-		// Get connection from the pool
-		c.Lock()
-		conn, err = c.pool.Next()
-		c.Unlock()
+		pool = c.snapshotPool()
+		conn, err = pool.Next()
 		if err != nil {
 			if c.logger != nil {
 				c.logRoundTrip(req, nil, err, time.Time{}, time.Duration(0))
@@ -416,9 +424,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			}
 
 			// Report the connection as unsuccessful
-			c.Lock()
-			_ = c.pool.OnFailure(conn)
-			c.Unlock()
+			_ = pool.OnFailure(conn)
 
 			// Retry upon decision by the user
 			if !c.disableRetry && (c.retryOnError == nil || c.retryOnError(req, err)) {
@@ -426,9 +432,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			}
 		} else {
 			// Report the connection as successful
-			c.Lock()
-			_ = c.pool.OnSuccess(conn)
-			c.Unlock()
+			_ = pool.OnSuccess(conn)
 		}
 
 		if res != nil && c.metrics != nil {
@@ -492,11 +496,20 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 
 // URLs returns a list of transport URLs.
 func (c *Client) URLs() []*url.URL {
+	c.poolMu.RLock()
+	defer c.poolMu.RUnlock()
 	return c.pool.URLs()
 }
 
 func (c *Client) InstrumentationEnabled() Instrumentation {
 	return c.instrumentation
+}
+
+func (c *Client) snapshotPool() ConnectionPool {
+	c.poolMu.RLock()
+	pool := c.pool
+	c.poolMu.RUnlock()
+	return pool
 }
 
 func (c *Client) roundTrip(req *http.Request) (*http.Response, error) {
@@ -624,7 +637,10 @@ func (c *Client) Close(ctx context.Context) error {
 		wg := sync.WaitGroup{}
 		errChan := make(chan error, 1)
 
-		if closeable, ok := c.pool.(CloseableConnectionPool); ok {
+		c.poolMu.RLock()
+		closeable, ok := c.pool.(CloseableConnectionPool)
+		c.poolMu.RUnlock()
+		if ok {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()

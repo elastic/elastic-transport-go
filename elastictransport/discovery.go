@@ -111,29 +111,30 @@ func (c *Client) DiscoverNodesContext(ctx context.Context) error {
 		})
 	}
 
-	c.Lock()
-	defer c.Unlock()
+	c.poolMu.Lock()
+	defer c.poolMu.Unlock()
 
-	if lockable, ok := c.pool.(sync.Locker); ok {
-		lockable.Lock()
-		defer lockable.Unlock()
+	if c.isClosed() {
+		return ErrClosed
+	}
+
+	if len(conns) == 0 {
+		if debugLogger != nil {
+			_ = debugLogger.Logf("No eligible nodes discovered; pool left untouched\n")
+		}
+		return nil
+	}
+
+	if p, ok := c.pool.(UpdatableConnectionPool); ok {
+		return p.Update(conns)
 	}
 
 	if c.poolFunc != nil {
-		c.pool = c.poolFunc(conns, c.selector)
+		c.pool = newSynchronizedPool(c.poolFunc(conns, c.selector))
 	} else {
-		if p, ok := c.pool.(UpdatableConnectionPool); ok {
-			err = p.Update(conns)
-			if err != nil {
-				if debugLogger != nil {
-					_ = debugLogger.Logf("Error updating pool: %s\n", err)
-				}
-			}
-		} else {
-			c.pool, err = NewConnectionPool(conns, c.selector)
-			if err != nil {
-				return err
-			}
+		c.pool, err = NewConnectionPool(conns, c.selector)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -157,9 +158,8 @@ func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
 		return out, err
 	}
 
-	c.Lock()
-	conn, err := c.pool.Next()
-	c.Unlock()
+	pool := c.snapshotPool()
+	conn, err := pool.Next()
 	// TODO(karmi): If no connection is returned, fallback to original URLs
 	if err != nil {
 		return out, err
