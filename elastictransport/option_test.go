@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -198,13 +199,51 @@ func TestWithTransport(t *testing.T) {
 }
 
 func TestWithDisableRetry(t *testing.T) {
-	tp, err := NewClient(WithDisableRetry(true))
+	tp, err := NewClient(WithDisableRetry())
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
 	if !tp.disableRetry {
 		t.Error("Expected disableRetry to be true")
 	}
+}
+
+func TestWithRetry(t *testing.T) {
+	t.Run("Sets max retries and status codes", func(t *testing.T) {
+		tp, err := NewClient(WithRetry(5, 429, 502, 503))
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if tp.maxRetries != 5 {
+			t.Errorf("Expected maxRetries=5, got=%d", tp.maxRetries)
+		}
+		if !reflect.DeepEqual(tp.retryOnStatus, []int{429, 502, 503}) {
+			t.Errorf("Unexpected retryOnStatus: %v", tp.retryOnStatus)
+		}
+	})
+
+	t.Run("Without status codes keeps defaults", func(t *testing.T) {
+		tp, err := NewClient(WithRetry(7))
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if tp.maxRetries != 7 {
+			t.Errorf("Expected maxRetries=7, got=%d", tp.maxRetries)
+		}
+		if !reflect.DeepEqual(tp.retryOnStatus, defaultRetryOnStatus[:]) {
+			t.Errorf("Expected default retryOnStatus, got=%v", tp.retryOnStatus)
+		}
+	})
+
+	t.Run("Negative retries returns error", func(t *testing.T) {
+		_, err := NewClient(WithRetry(-1))
+		if err == nil {
+			t.Fatal("Expected error for negative maxRetries")
+		}
+		if !strings.Contains(err.Error(), "maxRetries must be >= 0") {
+			t.Errorf("Unexpected error message: %s", err)
+		}
+	})
 }
 
 func TestWithRetryOnStatus(t *testing.T) {
@@ -218,13 +257,25 @@ func TestWithRetryOnStatus(t *testing.T) {
 }
 
 func TestWithMaxRetries(t *testing.T) {
-	tp, err := NewClient(WithMaxRetries(10))
-	if err != nil {
-		t.Fatalf("Unexpected error: %s", err)
-	}
-	if tp.maxRetries != 10 {
-		t.Errorf("Expected maxRetries=10, got=%d", tp.maxRetries)
-	}
+	t.Run("Valid value", func(t *testing.T) {
+		tp, err := NewClient(WithMaxRetries(10))
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if tp.maxRetries != 10 {
+			t.Errorf("Expected maxRetries=10, got=%d", tp.maxRetries)
+		}
+	})
+
+	t.Run("Negative value returns error", func(t *testing.T) {
+		_, err := NewClient(WithMaxRetries(-3))
+		if err == nil {
+			t.Fatal("Expected error for negative maxRetries")
+		}
+		if !strings.Contains(err.Error(), "must be >= 0") {
+			t.Errorf("Unexpected error message: %s", err)
+		}
+	})
 }
 
 func TestWithRetryBackoff(t *testing.T) {
@@ -252,31 +303,46 @@ func TestWithRetryOnError(t *testing.T) {
 	}
 }
 
-func TestWithCompressRequestBody(t *testing.T) {
-	tp, err := NewClient(WithCompressRequestBody(true))
-	if err != nil {
-		t.Fatalf("Unexpected error: %s", err)
-	}
-	if !tp.compressRequestBody {
-		t.Error("Expected compressRequestBody to be true")
-	}
-}
+func TestWithCompression(t *testing.T) {
+	t.Run("Default level", func(t *testing.T) {
+		tp, err := NewClient(WithCompression())
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if !tp.compressRequestBody {
+			t.Error("Expected compressRequestBody to be true")
+		}
+		if tp.gzipCompressor == nil {
+			t.Fatal("Expected gzipCompressor to be set")
+		}
+	})
 
-func TestWithCompressRequestBodyLevel(t *testing.T) {
-	tp, err := NewClient(
-		WithCompressRequestBody(true),
-		WithCompressRequestBodyLevel(gzip.BestSpeed),
-	)
-	if err != nil {
-		t.Fatalf("Unexpected error: %s", err)
-	}
-	if tp.compressRequestBodyLevel != gzip.BestSpeed {
-		t.Errorf("Expected compressRequestBodyLevel=%d, got=%d", gzip.BestSpeed, tp.compressRequestBodyLevel)
-	}
+	t.Run("Custom level", func(t *testing.T) {
+		tp, err := NewClient(WithCompression(gzip.BestSpeed))
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if !tp.compressRequestBody {
+			t.Error("Expected compressRequestBody to be true")
+		}
+		if tp.compressRequestBodyLevel != gzip.BestSpeed {
+			t.Errorf("Expected compressRequestBodyLevel=%d, got=%d", gzip.BestSpeed, tp.compressRequestBodyLevel)
+		}
+	})
+
+	t.Run("Invalid level returns error", func(t *testing.T) {
+		_, err := NewClient(WithCompression(42))
+		if err == nil {
+			t.Fatal("Expected error for invalid gzip level")
+		}
+		if !strings.Contains(err.Error(), "invalid gzip level") {
+			t.Errorf("Unexpected error message: %s", err)
+		}
+	})
 }
 
 func TestWithMetrics(t *testing.T) {
-	tp, err := NewClient(WithMetrics(true))
+	tp, err := NewClient(WithMetrics())
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
@@ -411,19 +477,6 @@ func TestWithInterceptors(t *testing.T) {
 	}
 }
 
-func TestWithPoolCompressor(t *testing.T) {
-	tp, err := NewClient(
-		WithCompressRequestBody(true),
-		WithPoolCompressor(true),
-	)
-	if err != nil {
-		t.Fatalf("Unexpected error: %s", err)
-	}
-	if tp.gzipCompressor == nil {
-		t.Fatal("Expected gzipCompressor to be set")
-	}
-}
-
 func TestOptionLastValueWins(t *testing.T) {
 	tp, err := NewClient(
 		WithMaxRetries(1),
@@ -474,11 +527,11 @@ func TestOptionParityWithConfig(t *testing.T) {
 		WithHeader(hdr),
 		WithUserAgent("test-agent"),
 		WithTransport(mock),
-		WithDisableRetry(true),
+		WithDisableRetry(),
 		WithRetryOnStatus(429),
 		WithMaxRetries(5),
-		WithCompressRequestBody(true),
-		WithMetrics(true),
+		WithCompression(),
+		WithMetrics(),
 	)
 	if err != nil {
 		t.Fatalf("NewClient error: %s", err)
@@ -514,4 +567,54 @@ func TestOptionParityWithConfig(t *testing.T) {
 	if (cfgClient.metrics == nil) != (optClient.metrics == nil) {
 		t.Errorf("metrics mismatch: cfg=%v, opt=%v", cfgClient.metrics != nil, optClient.metrics != nil)
 	}
+}
+
+func TestOptionValidationErrors(t *testing.T) {
+	t.Run("WithMaxRetries negative", func(t *testing.T) {
+		_, err := NewClient(WithMaxRetries(-1))
+		if err == nil {
+			t.Fatal("Expected error")
+		}
+	})
+
+	t.Run("WithRetry negative", func(t *testing.T) {
+		_, err := NewClient(WithRetry(-5, 502))
+		if err == nil {
+			t.Fatal("Expected error")
+		}
+	})
+
+	t.Run("WithCompression invalid level", func(t *testing.T) {
+		_, err := NewClient(WithCompression(99))
+		if err == nil {
+			t.Fatal("Expected error")
+		}
+	})
+
+	t.Run("WithCompression HuffmanOnly is valid", func(t *testing.T) {
+		_, err := NewClient(WithCompression(gzip.HuffmanOnly))
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+	})
+
+	t.Run("Multiple validation errors are collected", func(t *testing.T) {
+		_, err := NewClient(
+			WithMaxRetries(-1),
+			WithCompression(99),
+			WithRetry(-5),
+		)
+		if err == nil {
+			t.Fatal("Expected error")
+		}
+		if !strings.Contains(err.Error(), "WithMaxRetries") {
+			t.Errorf("Expected WithMaxRetries error, got: %s", err)
+		}
+		if !strings.Contains(err.Error(), "WithCompression") {
+			t.Errorf("Expected WithCompression error, got: %s", err)
+		}
+		if !strings.Contains(err.Error(), "WithRetry") {
+			t.Errorf("Expected WithRetry error, got: %s", err)
+		}
+	})
 }

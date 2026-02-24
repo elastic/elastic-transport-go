@@ -44,10 +44,10 @@ to customize it.
 # Retries
 
 The package will automatically retry requests on network-related errors, and on
-specific response status codes (by default 502, 503, 504). Use
-[WithRetryOnStatus] to customize the list. Use [WithMaxRetries] to configure the
-number of retries, and [WithDisableRetry] to disable the retry behaviour
-altogether.
+specific response status codes (by default 502, 503, 504). Use [WithRetry] to
+set the maximum retries and retryable status codes in one call, or use
+[WithMaxRetries] and [WithRetryOnStatus] individually. Use [WithDisableRetry] to
+disable the retry behaviour altogether.
 
 By default, the retry will be performed without any delay; to configure a
 backoff interval, use [WithRetryBackoff].

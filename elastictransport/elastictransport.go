@@ -185,8 +185,14 @@ type Client struct {
 //	)
 func NewClient(opts ...Option) (*Client, error) {
 	var cfg Config
+	var errs []error
 	for _, o := range opts {
-		o.apply(&cfg)
+		if err := o.apply(&cfg); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("transport options: %w", errors.Join(errs...))
 	}
 	return New(cfg)
 }

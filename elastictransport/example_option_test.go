@@ -18,6 +18,7 @@
 package elastictransport_test
 
 import (
+	"compress/gzip"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -76,8 +77,7 @@ func ExampleNewClient_retries() {
 
 	_, err := elastictransport.NewClient(
 		elastictransport.WithURLs(u),
-		elastictransport.WithMaxRetries(5),
-		elastictransport.WithRetryOnStatus(429, 502, 503, 504),
+		elastictransport.WithRetry(5, 429, 502, 503, 504),
 		elastictransport.WithRetryBackoff(func(attempt int) time.Duration {
 			return time.Duration(attempt) * 100 * time.Millisecond
 		}),
@@ -95,8 +95,7 @@ func ExampleNewClient_compression() {
 
 	_, err := elastictransport.NewClient(
 		elastictransport.WithURLs(u),
-		elastictransport.WithCompressRequestBody(true),
-		elastictransport.WithPoolCompressor(true),
+		elastictransport.WithCompression(gzip.BestSpeed),
 	)
 	if err != nil {
 		panic(err)

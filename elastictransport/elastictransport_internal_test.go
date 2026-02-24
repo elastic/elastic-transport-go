@@ -1794,9 +1794,9 @@ func TestNewClientTransportConfig(t *testing.T) {
 	t.Run("Custom", func(t *testing.T) {
 		tp, _ := NewClient(
 			WithRetryOnStatus(404, 408),
-			WithDisableRetry(true),
+			WithDisableRetry(),
 			WithMaxRetries(5),
-			WithCompressRequestBody(true),
+			WithCompression(),
 			WithCertificateFingerprint("7A3A6031CD097DA0EE84D65137912A84576B50194045B41F4F4B8AC1A98116BE"),
 		)
 
@@ -1906,7 +1906,7 @@ func TestNewClientPerform(t *testing.T) {
 		u, _ := url.Parse("http://foo.bar")
 		tp, _ := NewClient(
 			WithURLs(u, u, u),
-			WithDisableRetry(true),
+			WithDisableRetry(),
 			WithTransport(&mockTransp{
 				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
 					i++

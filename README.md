@@ -70,12 +70,11 @@ Common examples:
 transport, err := elastictransport.NewClient(
     elastictransport.WithURLs(u1, u2, u3),
     elastictransport.WithBasicAuth("elastic", "changeme"),
-    elastictransport.WithMaxRetries(5),
-    elastictransport.WithRetryOnStatus(429, 502, 503, 504),
+    elastictransport.WithRetry(5, 429, 502, 503, 504),
     elastictransport.WithRetryBackoff(func(attempt int) time.Duration {
         return time.Duration(attempt) * 100 * time.Millisecond
     }),
-    elastictransport.WithCompressRequestBody(true),
+    elastictransport.WithCompression(gzip.BestSpeed),
 )
 ```
 
@@ -113,7 +112,7 @@ creating the client:
 ```go
 transport, err := elastictransport.NewClient(
     elastictransport.WithURLs(u),
-    elastictransport.WithMetrics(true),
+    elastictransport.WithMetrics(),
 )
 ```
 
