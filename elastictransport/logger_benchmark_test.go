@@ -34,13 +34,13 @@ func BenchmarkTransportLogger(b *testing.B) {
 	b.ReportAllocs()
 
 	b.Run("Text", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			tp, _ := elastictransport.New(elastictransport.Config{
-				URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
-				Transport: newFakeTransport(b),
-				Logger:    &elastictransport.TextLogger{Output: io.Discard},
-			})
+		tp, _ := elastictransport.New(elastictransport.Config{
+			URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
+			Transport: newFakeTransport(b),
+			Logger:    &elastictransport.TextLogger{Output: io.Discard},
+		})
 
+		for i := 0; i < b.N; i++ {
 			req, _ := http.NewRequest("GET", "/abc", nil)
 			_, err := tp.Perform(req)
 			if err != nil {
@@ -50,13 +50,13 @@ func BenchmarkTransportLogger(b *testing.B) {
 	})
 
 	b.Run("Text-Body", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			tp, _ := elastictransport.New(elastictransport.Config{
-				URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
-				Transport: newFakeTransport(b),
-				Logger:    &elastictransport.TextLogger{Output: io.Discard, EnableRequestBody: true, EnableResponseBody: true},
-			})
+		tp, _ := elastictransport.New(elastictransport.Config{
+			URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
+			Transport: newFakeTransport(b),
+			Logger:    &elastictransport.TextLogger{Output: io.Discard, EnableRequestBody: true, EnableResponseBody: true},
+		})
 
+		for i := 0; i < b.N; i++ {
 			req, _ := http.NewRequest("GET", "/abc", nil)
 			res, err := tp.Perform(req)
 			if err != nil {
@@ -75,13 +75,13 @@ func BenchmarkTransportLogger(b *testing.B) {
 	})
 
 	b.Run("JSON", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			tp, _ := elastictransport.New(elastictransport.Config{
-				URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
-				Transport: newFakeTransport(b),
-				Logger:    &elastictransport.JSONLogger{Output: io.Discard},
-			})
+		tp, _ := elastictransport.New(elastictransport.Config{
+			URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
+			Transport: newFakeTransport(b),
+			Logger:    &elastictransport.JSONLogger{Output: io.Discard},
+		})
 
+		for i := 0; i < b.N; i++ {
 			req, _ := http.NewRequest("GET", "/abc", nil)
 			_, err := tp.Perform(req)
 			if err != nil {
@@ -91,13 +91,13 @@ func BenchmarkTransportLogger(b *testing.B) {
 	})
 
 	b.Run("JSON-Body", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			tp, _ := elastictransport.New(elastictransport.Config{
-				URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
-				Transport: newFakeTransport(b),
-				Logger:    &elastictransport.JSONLogger{Output: io.Discard, EnableRequestBody: true, EnableResponseBody: true},
-			})
+		tp, _ := elastictransport.New(elastictransport.Config{
+			URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
+			Transport: newFakeTransport(b),
+			Logger:    &elastictransport.JSONLogger{Output: io.Discard, EnableRequestBody: true, EnableResponseBody: true},
+		})
 
+		for i := 0; i < b.N; i++ {
 			req, _ := http.NewRequest("GET", "/abc", nil)
 			_, err := tp.Perform(req)
 			if err != nil {
