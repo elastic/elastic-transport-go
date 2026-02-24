@@ -63,6 +63,9 @@ type Closeable interface {
 }
 
 // Config represents the configuration of HTTP client.
+//
+// Deprecated: Use [NewClient] with [Option] values instead.
+// Config and [New] remain fully functional for backwards compatibility.
 type Config struct {
 	UserAgent string
 
@@ -171,9 +174,35 @@ type Client struct {
 	closeDone uint32
 }
 
+// NewClient creates a new transport Client configured with the given options.
+//
+// Options are applied in order; when the same setting is specified more than
+// once the last value wins.
+//
+//	tp, err := elastictransport.NewClient(
+//	    elastictransport.WithURLs(u1, u2),
+//	    elastictransport.WithMaxRetries(5),
+//	)
+func NewClient(opts ...Option) (*Client, error) {
+	var cfg Config
+	var errs []error
+	for _, o := range opts {
+		if err := o.apply(&cfg); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("transport options: %w", errors.Join(errs...))
+	}
+	return New(cfg)
+}
+
 // New creates new transport client.
 //
 // http.DefaultTransport will be used if no transport is passed in the configuration.
+//
+// Deprecated: Use [NewClient] with [Option] values instead.
+// New remains fully functional for backwards compatibility.
 func New(cfg Config) (*Client, error) {
 	if cfg.Transport == nil {
 		defaultTransport, ok := http.DefaultTransport.(*http.Transport)

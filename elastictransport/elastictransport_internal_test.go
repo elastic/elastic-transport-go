@@ -1733,3 +1733,268 @@ func (m *mockConnectionPool) URLs() []*url.URL {
 func (m *mockConnectionPool) Close(ctx context.Context) error {
 	return m.CloseFunc(ctx)
 }
+
+// ---------------------------------------------------------------------------
+// NewClient (options API) variants of key tests above.
+// ---------------------------------------------------------------------------
+
+func TestNewClientTransport(t *testing.T) {
+	t.Run("Interface", func(t *testing.T) {
+		tp, _ := NewClient()
+		var _ Interface = tp
+		var _ = tp.transport
+	})
+
+	t.Run("Default", func(t *testing.T) {
+		tp, _ := NewClient()
+		if tp.transport == nil {
+			t.Error("Expected the transport to not be nil")
+		}
+		if _, ok := tp.transport.(*http.Transport); !ok {
+			t.Errorf("Expected the transport to be *http.Transport, got: %T", tp.transport)
+		}
+	})
+
+	t.Run("Custom", func(t *testing.T) {
+		tp, _ := NewClient(
+			WithURLs(&url.URL{}),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) { return &http.Response{Status: "MOCK"}, nil },
+			}),
+		)
+
+		res, err := tp.roundTrip(&http.Request{URL: &url.URL{}})
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if res.Status != "MOCK" {
+			t.Errorf("Unexpected response from transport: %+v", res)
+		}
+	})
+}
+
+func TestNewClientTransportConfig(t *testing.T) {
+	t.Run("Defaults", func(t *testing.T) {
+		tp, _ := NewClient()
+
+		if !reflect.DeepEqual(tp.retryOnStatus, []int{502, 503, 504}) {
+			t.Errorf("Unexpected retryOnStatus: %v", tp.retryOnStatus)
+		}
+		if tp.disableRetry {
+			t.Errorf("Unexpected disableRetry: %v", tp.disableRetry)
+		}
+		if tp.maxRetries != 3 {
+			t.Errorf("Unexpected maxRetries: %v", tp.maxRetries)
+		}
+		if tp.compressRequestBody {
+			t.Errorf("Unexpected compressRequestBody: %v", tp.compressRequestBody)
+		}
+	})
+
+	t.Run("Custom", func(t *testing.T) {
+		tp, _ := NewClient(
+			WithRetryOnStatus(404, 408),
+			WithDisableRetry(),
+			WithMaxRetries(5),
+			WithCompression(),
+			WithCertificateFingerprint("7A3A6031CD097DA0EE84D65137912A84576B50194045B41F4F4B8AC1A98116BE"),
+		)
+
+		if !reflect.DeepEqual(tp.retryOnStatus, []int{404, 408}) {
+			t.Errorf("Unexpected retryOnStatus: %v", tp.retryOnStatus)
+		}
+		if !tp.disableRetry {
+			t.Errorf("Unexpected disableRetry: %v", tp.disableRetry)
+		}
+		if tp.maxRetries != 5 {
+			t.Errorf("Unexpected maxRetries: %v", tp.maxRetries)
+		}
+		if !tp.compressRequestBody {
+			t.Errorf("Unexpected compressRequestBody: %v", tp.compressRequestBody)
+		}
+	})
+}
+
+func TestNewClientConnectionPool(t *testing.T) {
+	t.Run("Single URL", func(t *testing.T) {
+		tp, _ := NewClient(WithURLs(&url.URL{Scheme: "http", Host: "foo1"}))
+
+		if _, ok := tp.pool.(*singleConnectionPool); !ok {
+			t.Errorf("Expected singleConnectionPool, got: %T", tp.pool)
+		}
+
+		conn, err := tp.pool.Next()
+		if err != nil {
+			t.Errorf("Unexpected error: %s", err)
+		}
+		if conn.URL.String() != "http://foo1" {
+			t.Errorf("Unexpected URL, want=http://foo1, got=%s", conn.URL)
+		}
+	})
+
+	t.Run("Two URLs", func(t *testing.T) {
+		tp, _ := NewClient(WithURLs(
+			&url.URL{Scheme: "http", Host: "foo1"},
+			&url.URL{Scheme: "http", Host: "foo2"},
+		))
+
+		if _, ok := tp.pool.(*statusConnectionPool); !ok {
+			t.Errorf("Expected statusConnectionPool, got: %T", tp.pool)
+		}
+
+		conn, err := tp.pool.Next()
+		if err != nil {
+			t.Errorf("Unexpected error: %s", err)
+		}
+		if conn.URL.String() != "http://foo1" {
+			t.Errorf("Unexpected URL, want=http://foo1, got=%s", conn.URL)
+		}
+	})
+}
+
+func TestNewClientPerform(t *testing.T) {
+	t.Run("Executes", func(t *testing.T) {
+		u, _ := url.Parse("https://foo.com/bar")
+		tp, _ := NewClient(
+			WithURLs(u),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) { return &http.Response{Status: "MOCK"}, nil },
+			}),
+		)
+
+		req, _ := http.NewRequest("GET", "/abc", nil)
+		res, err := tp.Perform(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if res.Status != "MOCK" {
+			t.Errorf("Unexpected response: %+v", res)
+		}
+	})
+
+	t.Run("Retries on 5xx", func(t *testing.T) {
+		var i int
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := NewClient(
+			WithURLs(u, u, u),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					i++
+					if i == 2 {
+						return &http.Response{StatusCode: 200}, nil
+					}
+					return &http.Response{StatusCode: 502}, nil
+				},
+			}),
+		)
+
+		req, _ := http.NewRequest("GET", "/abc", nil)
+		res, err := tp.Perform(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if res.StatusCode != 200 {
+			t.Errorf("Unexpected status code: %d", res.StatusCode)
+		}
+		if i != 2 {
+			t.Errorf("Unexpected number of requests, want=2, got=%d", i)
+		}
+	})
+
+	t.Run("Disable retry", func(t *testing.T) {
+		var i int
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := NewClient(
+			WithURLs(u, u, u),
+			WithDisableRetry(),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					i++
+					return nil, &mockNetError{error: fmt.Errorf("mock error (%d)", i)}
+				},
+			}),
+		)
+
+		req, _ := http.NewRequest("GET", "/abc", nil)
+		_, _ = tp.Perform(req)
+
+		if i != 1 {
+			t.Errorf("Unexpected number of requests, want=1, got=%d", i)
+		}
+	})
+}
+
+func TestNewClientClose(t *testing.T) {
+	t.Run("Close", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := NewClient(
+			WithURLs(u),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{Status: "MOCK"}, nil
+				},
+			}),
+		)
+		if err := tp.Close(context.Background()); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if err := tp.Close(context.Background()); err == nil {
+			t.Fatal("Expected ErrAlreadyClosed")
+		} else if !errors.Is(err, ErrAlreadyClosed) {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+	})
+
+	t.Run("Perform after close returns ErrClosed", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := NewClient(
+			WithURLs(u),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return nil, fmt.Errorf("error")
+				},
+			}),
+		)
+		_ = tp.Close(context.Background())
+		req, _ := http.NewRequest("GET", "/abc", nil)
+
+		_, err := tp.Perform(req)
+		if !errors.Is(err, ErrClosed) {
+			t.Fatalf("Expected ErrClosed, got %s", err)
+		}
+	})
+}
+
+func TestNewClientInterceptors(t *testing.T) {
+	mockInterceptor := func(next RoundTripFunc) RoundTripFunc {
+		return func(req *http.Request) (*http.Response, error) {
+			req.Header.Add("X-Intercept", "true")
+			return next(req)
+		}
+	}
+
+	t.Run("Multiple Interceptors", func(t *testing.T) {
+		u, _ := url.Parse("https://foo.com/bar")
+		tp, _ := NewClient(
+			WithURLs(u),
+			WithInterceptors(mockInterceptor, mockInterceptor, mockInterceptor),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{Status: "MOCK"}, nil
+				},
+			}),
+		)
+
+		req, _ := http.NewRequest("GET", "/abc", nil)
+		res, err := tp.Perform(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if res.Status != "MOCK" {
+			t.Errorf("Unexpected response: %+v", res)
+		}
+		if len(req.Header.Values("X-Intercept")) != 3 {
+			t.Errorf("Expected 3 X-Intercept headers, got %d", len(req.Header.Values("X-Intercept")))
+		}
+	})
+}
