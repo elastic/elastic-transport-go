@@ -293,9 +293,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 
 	// Record metrics, when enabled
 	if c.metrics != nil {
-		c.metrics.Lock()
-		c.metrics.requests++
-		c.metrics.Unlock()
+		c.metrics.requests.Add(1)
 	}
 
 	// Update request
@@ -384,9 +382,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		if err != nil {
 			// Record metrics, when enabled
 			if c.metrics != nil {
-				c.metrics.Lock()
-				c.metrics.failures++
-				c.metrics.Unlock()
+				c.metrics.failures.Add(1)
 			}
 
 			// Report the connection as unsuccessful

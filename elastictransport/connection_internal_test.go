@@ -80,7 +80,7 @@ func TestStatusConnectionPoolNext(t *testing.T) {
 				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}},
 				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		c, _ = pool.Next()
@@ -107,7 +107,7 @@ func TestStatusConnectionPoolNext(t *testing.T) {
 				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 				&Connection{URL: &url.URL{Scheme: "http", Host: "foo3"}},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		var expected string
@@ -142,7 +142,7 @@ func TestStatusConnectionPoolNext(t *testing.T) {
 				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}, Failures: 3},
 				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}, Failures: 1},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		c, err := pool.Next()
@@ -178,7 +178,7 @@ func TestStatusConnectionPoolOnSuccess(t *testing.T) {
 			dead: []*Connection{
 				&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}, Failures: 3, IsDead: true},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		conn := pool.dead[0]
@@ -216,7 +216,7 @@ func TestStatusConnectionPoolOnFailure(t *testing.T) {
 				&Connection{URL: &url.URL{Scheme: "http", Host: "foo3"}, Failures: 0},
 				&Connection{URL: &url.URL{Scheme: "http", Host: "foo4"}, Failures: 99},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		conn := pool.live[0]
@@ -265,7 +265,7 @@ func TestStatusConnectionPoolOnFailure(t *testing.T) {
 				&Connection{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 				&Connection{URL: &url.URL{Scheme: "http", Host: "foo3"}},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		conn := pool.live[0]
@@ -286,7 +286,7 @@ func TestStatusConnectionPoolResurrect(t *testing.T) {
 		pool := &statusConnectionPool{
 			live:     []*Connection{},
 			dead:     []*Connection{&Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}, IsDead: true}},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		conn := pool.dead[0]
@@ -311,7 +311,7 @@ func TestStatusConnectionPoolResurrect(t *testing.T) {
 	t.Run("Short circuit removal when the connection is not in the dead list", func(t *testing.T) {
 		pool := &statusConnectionPool{
 			dead:     []*Connection{&Connection{URL: &url.URL{Scheme: "http", Host: "bar"}, IsDead: true}},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		conn := &Connection{URL: &url.URL{Scheme: "http", Host: "foo1"}, IsDead: true}
@@ -343,7 +343,7 @@ func TestStatusConnectionPoolResurrect(t *testing.T) {
 					DeadSince: time.Now().UTC(),
 				},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		conn := pool.dead[0]
@@ -546,7 +546,7 @@ func TestUpdateConnectionPool(t *testing.T) {
 	t.Run("Update connection pool with discovery", func(t *testing.T) {
 		cp := &statusConnectionPool{
 			live:     initConnList(),
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		connections := []*Connection{
@@ -586,7 +586,7 @@ func TestCloseConnectionPool(t *testing.T) {
 				{URL: &url.URL{Scheme: "http", Host: "foo1"}},
 				{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 			closeC:   make(chan struct{}),
 		}
 
@@ -609,7 +609,7 @@ func TestCloseConnectionPool(t *testing.T) {
 				{URL: &url.URL{Scheme: "http", Host: "foo1"}},
 				{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 			closeC:   make(chan struct{}),
 		}
 
@@ -636,7 +636,7 @@ func TestCloseConnectionPool(t *testing.T) {
 			dead: []*Connection{
 				deadConn,
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 			closeC:   make(chan struct{}),
 		}
 
@@ -662,7 +662,7 @@ func TestCloseConnectionPool(t *testing.T) {
 				{URL: &url.URL{Scheme: "http", Host: "foo1"}},
 				{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 			closeC:   make(chan struct{}),
 		}
 		err := pool.Close(nil) //nolint:staticcheck
@@ -677,7 +677,7 @@ func TestCloseConnectionPool(t *testing.T) {
 				{URL: &url.URL{Scheme: "http", Host: "foo1"}},
 				{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 			closeC:   make(chan struct{}),
 		}
 		// Add to waitgroup that will never be resolved
@@ -698,7 +698,7 @@ func TestCloseConnectionPool(t *testing.T) {
 				{URL: &url.URL{Scheme: "http", Host: "foo1"}},
 				{URL: &url.URL{Scheme: "http", Host: "foo2"}},
 			},
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 			closeC:   make(chan struct{}),
 		}
 
