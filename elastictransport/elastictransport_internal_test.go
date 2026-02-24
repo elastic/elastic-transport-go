@@ -31,6 +31,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -55,6 +56,81 @@ type mockNetError struct{ error }
 
 func (e *mockNetError) Timeout() bool   { return false }
 func (e *mockNetError) Temporary() bool { return false }
+
+func TestConfigureTLS(t *testing.T) {
+	t.Run("Returns error when transport is nil", func(t *testing.T) {
+		if err := ConfigureTLS(nil, nil, ""); err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+	})
+
+	t.Run("Returns error on invalid CA cert", func(t *testing.T) {
+		transport := &http.Transport{}
+		if err := ConfigureTLS(transport, []byte("invalid"), ""); err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+	})
+
+	t.Run("Initializes TLS config and RootCAs from PEM", func(t *testing.T) {
+		caCert, err := os.ReadFile("testdata/cert.pem")
+		if err != nil {
+			t.Fatalf("Unexpected error reading cert: %s", err)
+		}
+
+		transport := &http.Transport{}
+		if err := ConfigureTLS(transport, caCert, ""); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		if transport.TLSClientConfig == nil {
+			t.Fatal("Expected TLSClientConfig to be initialized")
+		}
+		if transport.TLSClientConfig.RootCAs == nil {
+			t.Fatal("Expected RootCAs to be initialized")
+		}
+	})
+
+	t.Run("Returns error on invalid fingerprint hex", func(t *testing.T) {
+		transport := &http.Transport{}
+		err := ConfigureTLS(transport, nil, "not-valid-hex")
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "invalid certificate fingerprint") {
+			t.Fatalf("Unexpected error message: %s", err)
+		}
+	})
+
+	t.Run("Sets DialTLSContext when fingerprint is configured", func(t *testing.T) {
+		transport := &http.Transport{}
+		if err := ConfigureTLS(transport, nil, "A98116BE"); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		if transport.DialTLSContext == nil {
+			t.Fatal("Expected DialTLSContext to be configured")
+		}
+	})
+
+	t.Run("Fingerprint takes precedence over CACert", func(t *testing.T) {
+		caCert, err := os.ReadFile("testdata/cert.pem")
+		if err != nil {
+			t.Fatalf("Unexpected error reading cert: %s", err)
+		}
+
+		transport := &http.Transport{}
+		if err := ConfigureTLS(transport, caCert, "A98116BE"); err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		if transport.DialTLSContext == nil {
+			t.Fatal("Expected DialTLSContext to be configured")
+		}
+		if transport.TLSClientConfig != nil {
+			t.Fatal("Expected TLSClientConfig to remain nil when fingerprint is set")
+		}
+	})
+}
 
 func TestTransport(t *testing.T) {
 	t.Run("Interface", func(t *testing.T) {
@@ -140,6 +216,54 @@ func TestTransportConfig(t *testing.T) {
 
 		if tp.transport.(*http.Transport).DialTLSContext != nil && http.DefaultTransport.(*http.Transport).DialTLSContext != nil {
 			t.Errorf("DefaultTransportContext should have been cloned.")
+		}
+	})
+
+	t.Run("CACert on default transport initializes TLS client config", func(t *testing.T) {
+		caCert, err := os.ReadFile("testdata/cert.pem")
+		if err != nil {
+			t.Fatalf("Unexpected error reading cert: %s", err)
+		}
+
+		tp, err := New(Config{CACert: caCert})
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		httpTransport, ok := tp.transport.(*http.Transport)
+		if !ok {
+			t.Fatalf("Expected *http.Transport, got: %T", tp.transport)
+		}
+
+		if httpTransport.TLSClientConfig == nil {
+			t.Fatal("Expected TLSClientConfig to be initialized")
+		}
+		if httpTransport.TLSClientConfig.RootCAs == nil {
+			t.Fatal("Expected RootCAs to be initialized")
+		}
+	})
+
+	t.Run("TLS options on non-http.Transport returns error", func(t *testing.T) {
+		caCert, err := os.ReadFile("testdata/cert.pem")
+		if err != nil {
+			t.Fatalf("Unexpected error reading cert: %s", err)
+		}
+
+		_, err = New(Config{
+			CACert: caCert,
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{Status: "MOCK"}, nil
+				},
+			},
+		})
+		if err == nil {
+			t.Fatal("Expected error, got nil")
+		}
+
+		expected := "unable to configure TLS for transport of type *elastictransport.mockTransp"
+		if err.Error() != expected {
+			t.Fatalf("Unexpected error, want=%q got=%q", expected, err.Error())
 		}
 	})
 }
