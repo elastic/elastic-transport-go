@@ -1,20 +1,20 @@
 {
-    "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-    "release-type": "go",
-    "include-component-in-tag": false,
-    "include-v-in-tag": true,
-    "include-v-in-release-name": false,
-    "bootstrap-sha": "c2d0c18106e550ed73c30f49e2b318f51a6e57db",
-    "draft-pull-request": true,
-    "always-update":  true,
-    "packages": {
-        ".": {
-            "version-file": "elastictransport/version/version.go"
-        }
-    },
-    "plugins": [
-        {
-            "type": "sentence-case"
-        }
-    ]
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "go",
+  "include-component-in-tag": false,
+  "include-v-in-tag": true,
+  "include-v-in-release-name": false,
+  "bootstrap-sha": "c2d0c18106e550ed73c30f49e2b318f51a6e57db",
+  "draft-pull-request": true,
+  "always-update": true,
+  "packages": {
+    ".": {
+      "version-file": "elastictransport/version/version.go"
+    }
+  },
+  "plugins": [
+    {
+      "type": "sentence-case"
+    }
+  ]
 }
