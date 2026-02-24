@@ -304,10 +304,20 @@ func TestWithCertificateFingerprint(t *testing.T) {
 }
 
 func TestWithDiscoverNodesInterval(t *testing.T) {
-	tp, err := NewClient(WithDiscoverNodesInterval(30 * time.Second))
+	u, _ := url.Parse("http://localhost:9200")
+	tp, err := NewClient(
+		WithURLs(u),
+		WithDiscoverNodesInterval(30*time.Second),
+		WithTransport(&mockTransp{
+			RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
+			},
+		}),
+	)
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
+	defer tp.Close(nil) //nolint:errcheck
 	if tp.discoverNodesInterval != 30*time.Second {
 		t.Errorf("Expected 30s, got %s", tp.discoverNodesInterval)
 	}

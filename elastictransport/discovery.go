@@ -20,6 +20,7 @@ package elastictransport
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -142,6 +143,10 @@ func (c *Client) DiscoverNodesContext(ctx context.Context) error {
 }
 
 func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
+	if len(c.urls) == 0 {
+		return nil, errors.New("no URLs configured")
+	}
+
 	var (
 		out    []nodeInfo
 		scheme = c.urls[0].Scheme
