@@ -22,6 +22,7 @@ package elastictransport
 
 import (
 	"compress/gzip"
+	"context"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -317,7 +318,7 @@ func TestWithDiscoverNodesInterval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %s", err)
 	}
-	defer tp.Close(nil) //nolint:errcheck
+	defer tp.Close(context.Background()) //nolint:errcheck
 	if tp.discoverNodesInterval != 30*time.Second {
 		t.Errorf("Expected 30s, got %s", tp.discoverNodesInterval)
 	}
