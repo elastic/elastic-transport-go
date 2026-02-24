@@ -9,12 +9,14 @@ It provides the Transport interface used by `go-elasticsearch`, connection pool,
 
 Add the package to your go.mod file:
 
-`require github.com/elastic/elastic/transport-go/v8 main`
+`require github.com/elastic/elastic-transport-go/v8 main`
 
 ## Usage
 
 ### Transport
-The transport provides the basic layer to access Elasticsearch APIs.
+
+The transport provides the basic layer to access Elasticsearch APIs. Create a
+client with `NewClient` and functional options:
 
 ```go
 package main
@@ -32,10 +34,9 @@ import (
 func main() {
 	u, _ := url.Parse("http://127.0.0.1:9200")
 
-	cfg := elastictransport.Config{
-		URLs: []*url.URL{u},
-	}
-	transport, err := elastictransport.New(cfg)
+	transport, err := elastictransport.NewClient(
+		elastictransport.WithURLs(u),
+	)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -57,32 +58,77 @@ func main() {
 }
 ```
 
-> NOTE: It is _critical_ to both close the response body _and_ to consume it, in order to re-use persistent TCP connections in the default HTTP transport. If you're not interested in the response body, call `io.Copy(ioutil.Discard, res.Body)`.
+Options are applied in order; when the same setting is specified more than once
+the last value wins. See the `With*` functions in the
+[package documentation](https://pkg.go.dev/github.com/elastic/elastic-transport-go/v8/elastictransport)
+for the full list of available options.
+
+Common examples:
+
+```go
+// Multiple nodes with basic auth, custom retries, and compression
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u1, u2, u3),
+    elastictransport.WithBasicAuth("elastic", "changeme"),
+    elastictransport.WithMaxRetries(5),
+    elastictransport.WithRetryOnStatus(429, 502, 503, 504),
+    elastictransport.WithRetryBackoff(func(attempt int) time.Duration {
+        return time.Duration(attempt) * 100 * time.Millisecond
+    }),
+    elastictransport.WithCompressRequestBody(true),
+)
+```
+
+> **Note:** The older `New(Config{...})` API is deprecated but remains fully
+> functional for backwards compatibility.
+
+> **Note:** It is _critical_ to both close the response body _and_ to consume it,
+> in order to re-use persistent TCP connections in the default HTTP transport. If
+> you're not interested in the response body, call `io.Copy(io.Discard, res.Body)`.
 
 ### Discovery
 
 Discovery module calls the cluster to retrieve its complete list of nodes.
 
-Once your transport has been setup, you can easily trigger this behavior like so :
+Once your transport has been set up, you can easily trigger this behavior like so:
 
 ```go
 err := transport.DiscoverNodes()
 ```
 
+Or configure automatic periodic discovery when creating the client:
+
+```go
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithDiscoverNodesInterval(5 * time.Minute),
+)
+```
+
 ### Metrics
 
-Allows you to retrieve metrics directly from the transport.
+Allows you to retrieve metrics directly from the transport. Enable metrics when
+creating the client:
+
+```go
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithMetrics(true),
+)
+```
 
 ### Loggers
 
-One of multiple loggers can be injected directly into the `Logger` configuration, these are as follow:
+A logger can be provided via the `WithLogger` option. Several bundled loggers
+are available:
 
 #### TextLogger
 config:
 ```go
-cfg := elastictransport.Config{
-    elastictransport.TextLogger{os.Stdout, true, true},
-}
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithLogger(&elastictransport.TextLogger{Output: os.Stdout, EnableRequestBody: true, EnableResponseBody: true}),
+)
 ```
 output:
 ```
@@ -108,9 +154,10 @@ output:
 #### JSONLogger
 config:
 ```go
-cfg := elastictransport.Config{
-    Logger: &elastictransport.JSONLogger{os.Stdout, true, true},
-}
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithLogger(&elastictransport.JSONLogger{Output: os.Stdout, EnableRequestBody: true, EnableResponseBody: true}),
+)
 ```
 output:
 ```json
@@ -141,9 +188,10 @@ output:
 #### ColorLogger
 config:
 ```go
-cfg := elastictransport.Config{
-    Logger: &elastictransport.ColorLogger{os.Stdout, true, true},
-}
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithLogger(&elastictransport.ColorLogger{Output: os.Stdout, EnableRequestBody: true, EnableResponseBody: true}),
+)
 ```
 output:
 ```
@@ -168,12 +216,13 @@ GET http://127.0.0.1:9200/ 200 OK 2ms
 ────────────────────────────────────────────────────────────────────────────────
 ```
 
-### CurlLogger
+#### CurlLogger
 config:
 ```go
-cfg := elastictransport.Config{
-    Logger: &elastictransport.CurlLogger{os.Stdout, true, true},
-}
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithLogger(&elastictransport.CurlLogger{Output: os.Stdout, EnableRequestBody: true, EnableResponseBody: true}),
+)
 ```
 output:
 ```shell
