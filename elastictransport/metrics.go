@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -63,8 +64,8 @@ type ConnectionMetric struct {
 type metrics struct {
 	sync.RWMutex
 
-	requests  int
-	failures  int
+	requests  atomic.Uint64
+	failures  atomic.Uint64
 	responses map[int]int
 }
 
@@ -73,20 +74,21 @@ func (c *Client) Metrics() (Metrics, error) {
 	if c.metrics == nil {
 		return Metrics{}, errors.New("transport metrics not enabled")
 	}
-	c.metrics.RLock()
-	defer c.metrics.RUnlock()
 
 	c.poolMu.RLock()
 	defer c.poolMu.RUnlock()
 
-	m := Metrics{
-		Requests:  c.metrics.requests,
-		Failures:  c.metrics.failures,
-		Responses: make(map[int]int, len(c.metrics.responses)),
-	}
-
+	responses := make(map[int]int)
+	c.metrics.RLock()
 	for code, num := range c.metrics.responses {
-		m.Responses[code] = num
+		responses[code] = num
+	}
+	c.metrics.RUnlock()
+
+	m := Metrics{
+		Requests:  int(c.metrics.requests.Load()),
+		Failures:  int(c.metrics.failures.Load()),
+		Responses: responses,
 	}
 
 	if pool, ok := c.pool.(connectionable); ok {

@@ -49,8 +49,8 @@ func TestMetrics(t *testing.T) {
 			},
 		)
 
-		tp.metrics.requests = 3
-		tp.metrics.failures = 4
+		tp.metrics.requests.Store(3)
+		tp.metrics.failures.Store(4)
 		tp.metrics.responses[200] = 1
 		tp.metrics.responses[404] = 2
 
