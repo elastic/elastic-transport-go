@@ -122,14 +122,18 @@ A logger can be provided via the `WithLogger` option. Several bundled loggers
 are available:
 
 #### TextLogger
+
 config:
+
 ```go
 transport, err := elastictransport.NewClient(
     elastictransport.WithURLs(u),
     elastictransport.WithLogger(&elastictransport.TextLogger{Output: os.Stdout, EnableRequestBody: true, EnableResponseBody: true}),
 )
 ```
+
 output:
+
 ```
 < {
 <   "name" : "es",
@@ -151,14 +155,18 @@ output:
 ```
 
 #### JSONLogger
+
 config:
+
 ```go
 transport, err := elastictransport.NewClient(
     elastictransport.WithURLs(u),
     elastictransport.WithLogger(&elastictransport.JSONLogger{Output: os.Stdout, EnableRequestBody: true, EnableResponseBody: true}),
 )
 ```
+
 output:
+
 ```json
 {
   "@timestamp": "2021-11-25T16:33:51Z",
@@ -185,14 +193,18 @@ output:
 ```
 
 #### ColorLogger
+
 config:
+
 ```go
 transport, err := elastictransport.NewClient(
     elastictransport.WithURLs(u),
     elastictransport.WithLogger(&elastictransport.ColorLogger{Output: os.Stdout, EnableRequestBody: true, EnableResponseBody: true}),
 )
 ```
+
 output:
+
 ```
 GET http://127.0.0.1:9200/ 200 OK 2ms
 « {
@@ -216,14 +228,18 @@ GET http://127.0.0.1:9200/ 200 OK 2ms
 ```
 
 #### CurlLogger
+
 config:
+
 ```go
 transport, err := elastictransport.NewClient(
     elastictransport.WithURLs(u),
     elastictransport.WithLogger(&elastictransport.CurlLogger{Output: os.Stdout, EnableRequestBody: true, EnableResponseBody: true}),
 )
 ```
+
 output:
+
 ```shell
 curl -X GET 'http://localhost:9200/?pretty'
 # => 2021-11-25T16:40:11Z [200 OK] 3ms

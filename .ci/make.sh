@@ -39,6 +39,7 @@ product="elastic/client-skel"
 output_folder=".ci/output"
 codegen_folder=".ci/output"
 OUTPUT_DIR="$repo/${output_folder}"
+# shellcheck disable=SC2034 # used in commented-out docker run below
 REPO_BINDING="${OUTPUT_DIR}:/sln/${output_folder}"
 mkdir -p "$OUTPUT_DIR"
 
@@ -58,7 +59,7 @@ case $CMD in
         exit 0
         ;;
     assemble)
-        if [ -v $VERSION ]; then
+        if [ -v "$VERSION" ]; then
             echo -e "\033[31;1mTARGET: assemble -> missing version parameter\033[0m"
             exit 1
         fi
@@ -67,7 +68,7 @@ case $CMD in
         TASK_ARGS=("$VERSION" "$output_folder")
         ;;
     codegen)
-        if [ -v $VERSION ]; then
+        if [ -v "$VERSION" ]; then
             echo -e "\033[31;1mTARGET: codegen -> missing version parameter\033[0m"
             exit 1
         fi
@@ -77,7 +78,7 @@ case $CMD in
         TASK_ARGS=("$VERSION" "$codegen_folder")
         ;;
     docsgen)
-        if [ -v $VERSION ]; then
+        if [ -v "$VERSION" ]; then
             echo -e "\033[31;1mTARGET: docsgen -> missing version parameter\033[0m"
             exit 1
         fi
@@ -93,13 +94,15 @@ case $CMD in
         TASK_ARGS=("$VERSION" "$codegen_folder")
         ;;
     bump)
-        if [ -v $VERSION ]; then
+        if [ -v "$VERSION" ]; then
             echo -e "\033[31;1mTARGET: bump -> missing version parameter\033[0m"
             exit 1
         fi
         echo -e "\033[36;1mTARGET: bump to version $VERSION\033[0m"
+        # shellcheck disable=SC2034 # used in commented-out docker run below
         TASK=bump
         # VERSION is BRANCH here for now
+        # shellcheck disable=SC2034 # used in commented-out docker run below
         TASK_ARGS=("$VERSION")
         ;;
     *)
