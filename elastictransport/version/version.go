@@ -17,6 +17,6 @@
 
 package version
 
-const Version = "8.9.0"
+const Version = "8.9.1-SNAPSHOT"
 
 const Transport = Version
