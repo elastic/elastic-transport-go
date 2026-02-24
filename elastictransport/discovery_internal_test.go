@@ -210,17 +210,17 @@ func TestDiscovery(t *testing.T) {
 
 		tp, _ := New(Config{URLs: []*url.URL{u}, DiscoverNodesInterval: 10 * time.Millisecond})
 
-		tp.Lock()
+		tp.poolMu.RLock()
 		numURLs = len(tp.pool.URLs())
-		tp.Unlock()
+		tp.poolMu.RUnlock()
 		if numURLs != 1 {
 			t.Errorf("Unexpected number of nodes, want=1, got=%d", numURLs)
 		}
 
 		time.Sleep(18 * time.Millisecond) // Wait until (*Client).scheduleDiscoverNodes()
-		tp.Lock()
+		tp.poolMu.RLock()
 		numURLs = len(tp.pool.URLs())
-		tp.Unlock()
+		tp.poolMu.RUnlock()
 		if numURLs != 2 {
 			t.Errorf("Unexpected number of nodes, want=2, got=%d", numURLs)
 		}
@@ -603,4 +603,120 @@ func TestDiscoveryIPv6(t *testing.T) {
 			t.Errorf("Unexpected pool URLs:\n  got:  %v\n  want: %v", urls, wantURLs)
 		}
 	})
+}
+
+func TestDiscoverNodesContextLeavesPoolUntouchedOnEmptyDiscoveredSet(t *testing.T) {
+	makeResponse := func(body []byte) *http.Response {
+		return &http.Response{
+			Status:        "200 OK",
+			StatusCode:    200,
+			ContentLength: int64(len(body)),
+			Header:        map[string][]string{"Content-Type": {"application/json"}},
+			Body:          io.NopCloser(bytes.NewReader(body)),
+		}
+	}
+
+	urlHosts := func(urls []*url.URL) []string {
+		out := make([]string, 0, len(urls))
+		for _, u := range urls {
+			out = append(out, u.Host)
+		}
+		sort.Strings(out)
+		return out
+	}
+
+	tests := []struct {
+		name    string
+		payload []byte
+	}{
+		{
+			name: "all master-only nodes",
+			payload: []byte(`{
+				"nodes": {
+					"es1": {"roles": ["master"], "http": {"publish_address": "es1:9200"}},
+					"es2": {"roles": ["master"], "http": {"publish_address": "es2:9200"}}
+				}
+			}`),
+		},
+		{
+			name:    "empty nodes payload",
+			payload: []byte(`{"nodes": {}}`),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u1, _ := url.Parse("http://seed1:9200")
+			u2, _ := url.Parse("http://seed2:9200")
+
+			tp, _ := New(Config{
+				URLs: []*url.URL{u1, u2},
+				Transport: &mockTransp{
+					RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+						return makeResponse(tt.payload), nil
+					},
+				},
+			})
+
+			beforePool, ok := tp.pool.(*statusConnectionPool)
+			if !ok {
+				t.Fatalf("Unexpected pool type before discovery: %T", tp.pool)
+			}
+			beforeHosts := urlHosts(beforePool.URLs())
+
+			if err := tp.DiscoverNodesContext(context.Background()); err != nil {
+				t.Fatalf("DiscoverNodesContext() unexpected error: %s", err)
+			}
+
+			afterPool, ok := tp.pool.(*statusConnectionPool)
+			if !ok {
+				t.Fatalf("Unexpected pool type after discovery: %T", tp.pool)
+			}
+			afterHosts := urlHosts(afterPool.URLs())
+
+			if !reflect.DeepEqual(afterHosts, beforeHosts) {
+				t.Fatalf("Pool changed after empty discovered set, before=%v after=%v", beforeHosts, afterHosts)
+			}
+		})
+	}
+}
+
+func TestDiscoverNodesContextReturnsErrClosedWhenClosedOnEmptyDiscoveredSet(t *testing.T) {
+	makeResponse := func(body []byte) *http.Response {
+		return &http.Response{
+			Status:        "200 OK",
+			StatusCode:    200,
+			ContentLength: int64(len(body)),
+			Header:        map[string][]string{"Content-Type": {"application/json"}},
+			Body:          io.NopCloser(bytes.NewReader(body)),
+		}
+	}
+
+	// Master-only payload yields an empty eligible connection set.
+	payload := []byte(`{
+		"nodes": {
+			"es1": {"roles": ["master"], "http": {"publish_address": "es1:9200"}}
+		}
+	}`)
+
+	u1, _ := url.Parse("http://seed1:9200")
+	u2, _ := url.Parse("http://seed2:9200")
+
+	var tp *Client
+	tp, _ = New(Config{
+		URLs: []*url.URL{u1, u2},
+		Transport: &mockTransp{
+			RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+				if err := tp.Close(context.Background()); err != nil {
+					return nil, err
+				}
+				return makeResponse(payload), nil
+			},
+		},
+	})
+
+	err := tp.DiscoverNodesContext(context.Background())
+	if !errors.Is(err, ErrClosed) {
+		t.Fatalf("DiscoverNodesContext() error mismatch, want=%v, got=%v", ErrClosed, err)
+	}
 }

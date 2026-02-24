@@ -76,10 +76,8 @@ func (c *Client) Metrics() (Metrics, error) {
 	c.metrics.RLock()
 	defer c.metrics.RUnlock()
 
-	if lockable, ok := c.pool.(sync.Locker); ok {
-		lockable.Lock()
-		defer lockable.Unlock()
-	}
+	c.poolMu.RLock()
+	defer c.poolMu.RUnlock()
 
 	m := Metrics{
 		Requests:  c.metrics.requests,

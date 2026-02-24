@@ -33,6 +33,7 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -203,16 +204,21 @@ func TestTransportConnectionPool(t *testing.T) {
 }
 
 type CustomConnectionPool struct {
+	mu   sync.Mutex
 	urls []*url.URL
 }
 
 // Next returns a random connection.
 func (cp *CustomConnectionPool) Next() (*Connection, error) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
 	u := cp.urls[lrand.Intn(len(cp.urls))]
 	return &Connection{URL: u}, nil
 }
 
 func (cp *CustomConnectionPool) OnFailure(c *Connection) error {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
 	var index = -1
 	for i, u := range cp.urls {
 		if u == c.URL {
@@ -226,7 +232,74 @@ func (cp *CustomConnectionPool) OnFailure(c *Connection) error {
 	return fmt.Errorf("connection not found")
 }
 func (cp *CustomConnectionPool) OnSuccess(c *Connection) error { return nil }
-func (cp *CustomConnectionPool) URLs() []*url.URL              { return cp.urls }
+func (cp *CustomConnectionPool) URLs() []*url.URL {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	return cp.urls
+}
+
+type ConcurrentSafeCustomConnectionPool struct {
+	*CustomConnectionPool
+}
+
+func (cp *ConcurrentSafeCustomConnectionPool) ConcurrentSafe() {}
+
+type ConcurrentSafeUpdatableCustomConnectionPool struct {
+	mu    sync.Mutex
+	conns []*Connection
+	curr  int
+}
+
+func (cp *ConcurrentSafeUpdatableCustomConnectionPool) ConcurrentSafe() {}
+
+func (cp *ConcurrentSafeUpdatableCustomConnectionPool) Next() (*Connection, error) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+
+	if len(cp.conns) == 0 {
+		return nil, fmt.Errorf("no connection available")
+	}
+
+	conn := cp.conns[cp.curr%len(cp.conns)]
+	cp.curr++
+	return conn, nil
+}
+
+func (cp *ConcurrentSafeUpdatableCustomConnectionPool) OnSuccess(*Connection) error { return nil }
+func (cp *ConcurrentSafeUpdatableCustomConnectionPool) OnFailure(*Connection) error { return nil }
+
+func (cp *ConcurrentSafeUpdatableCustomConnectionPool) URLs() []*url.URL {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+
+	urls := make([]*url.URL, 0, len(cp.conns))
+	for _, conn := range cp.conns {
+		urls = append(urls, conn.URL)
+	}
+
+	return urls
+}
+
+func (cp *ConcurrentSafeUpdatableCustomConnectionPool) Update(conns []*Connection) error {
+	if len(conns) == 0 {
+		return fmt.Errorf("no connection available")
+	}
+
+	cp.mu.Lock()
+	cp.conns = append(make([]*Connection, 0, len(conns)), conns...)
+	if cp.curr >= len(cp.conns) {
+		cp.curr = 0
+	}
+	cp.mu.Unlock()
+
+	return nil
+}
+
+func (cp *ConcurrentSafeUpdatableCustomConnectionPool) connections() []*Connection {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	return append(make([]*Connection, 0, len(cp.conns)), cp.conns...)
+}
 
 func TestTransportCustomConnectionPool(t *testing.T) {
 	t.Run("Run", func(t *testing.T) {
@@ -241,8 +314,12 @@ func TestTransportCustomConnectionPool(t *testing.T) {
 			},
 		})
 
-		if _, ok := tp.pool.(*CustomConnectionPool); !ok {
-			t.Fatalf("Unexpected connection pool, want=CustomConnectionPool, got=%T", tp.pool)
+		sp, ok := tp.pool.(*synchronizedPool)
+		if !ok {
+			t.Fatalf("Unexpected connection pool, want=*synchronizedPool, got=%T", tp.pool)
+		}
+		if _, ok := sp.pool.(*CustomConnectionPool); !ok {
+			t.Fatalf("Unexpected inner pool, want=*CustomConnectionPool, got=%T", sp.pool)
 		}
 
 		conn, err := tp.pool.Next()
@@ -259,6 +336,143 @@ func TestTransportCustomConnectionPool(t *testing.T) {
 			t.Errorf("Unexpected number of connections in pool: %q", tp.pool)
 		}
 	})
+}
+
+func TestTransportConcurrentSafeCustomConnectionPool(t *testing.T) {
+	t.Run("Run", func(t *testing.T) {
+		tp, _ := New(Config{
+			ConnectionPoolFunc: func(conns []*Connection, selector Selector) ConnectionPool {
+				return &ConcurrentSafeCustomConnectionPool{
+					CustomConnectionPool: &CustomConnectionPool{
+						urls: []*url.URL{
+							{Scheme: "http", Host: "custom1"},
+							{Scheme: "http", Host: "custom2"},
+						},
+					},
+				}
+			},
+		})
+
+		if _, ok := tp.pool.(*synchronizedPool); ok {
+			t.Fatalf("Unexpected connection pool wrapper for concurrent-safe pool, got=%T", tp.pool)
+		}
+		if _, ok := tp.pool.(*ConcurrentSafeCustomConnectionPool); !ok {
+			t.Fatalf("Unexpected connection pool, want=*ConcurrentSafeCustomConnectionPool, got=%T", tp.pool)
+		}
+
+		conn, err := tp.pool.Next()
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if conn.URL == nil {
+			t.Errorf("Empty connection URL: %+v", conn)
+		}
+		if err := tp.pool.OnFailure(conn); err != nil {
+			t.Errorf("Error removing the %q connection: %s", conn.URL, err)
+		}
+		if len(tp.pool.URLs()) != 1 {
+			t.Errorf("Unexpected number of connections in pool: %q", tp.pool)
+		}
+	})
+}
+
+func TestTransportConcurrentSafeCustomPoolConcurrentUsage(t *testing.T) {
+	makeResponse := func(statusCode int, body string) *http.Response {
+		return &http.Response{
+			Status:        fmt.Sprintf("%d MOCK", statusCode),
+			StatusCode:    statusCode,
+			ContentLength: int64(len(body)),
+			Header:        http.Header{"Content-Type": {"application/json"}},
+			Body:          io.NopCloser(strings.NewReader(body)),
+		}
+	}
+
+	payloads := []string{
+		`{"nodes":{"es1":{"roles":["master","data"],"http":{"publish_address":"es1:9200"}},"es2":{"roles":["master","data"],"http":{"publish_address":"es2:9200"}}}}`,
+		`{"nodes":{"es1":{"roles":["master","data"],"http":{"publish_address":"es1:9200"}},"es2":{"roles":["master","data"],"http":{"publish_address":"es2:9200"}},"es3":{"roles":["master","data"],"http":{"publish_address":"es3:9200"}}}}`,
+	}
+
+	var payloadMu sync.Mutex
+	payloadIdx := 0
+
+	u1, _ := url.Parse("http://seed1:9200")
+	u2, _ := url.Parse("http://seed2:9200")
+	tp, _ := New(Config{
+		EnableMetrics: true,
+		URLs:          []*url.URL{u1, u2},
+		ConnectionPoolFunc: func(conns []*Connection, selector Selector) ConnectionPool {
+			return &ConcurrentSafeUpdatableCustomConnectionPool{
+				conns: append(make([]*Connection, 0, len(conns)), conns...),
+			}
+		},
+		Transport: &mockTransp{
+			RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path == "/_nodes/http" {
+					payloadMu.Lock()
+					body := payloads[payloadIdx%len(payloads)]
+					payloadIdx++
+					payloadMu.Unlock()
+					return makeResponse(http.StatusOK, body), nil
+				}
+				return makeResponse(http.StatusOK, ""), nil
+			},
+		},
+		DisableRetry: true,
+	})
+
+	if _, ok := tp.pool.(*synchronizedPool); ok {
+		t.Fatalf("Unexpected connection pool wrapper for concurrent-safe pool, got=%T", tp.pool)
+	}
+	if _, ok := tp.pool.(*ConcurrentSafeUpdatableCustomConnectionPool); !ok {
+		t.Fatalf("Unexpected connection pool, got=%T", tp.pool)
+	}
+
+	errCh := make(chan error, 3)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 600; i++ {
+			req, _ := http.NewRequest("GET", "/", nil)
+			res, err := tp.Perform(req)
+			if err != nil {
+				errCh <- fmt.Errorf("perform failed: %w", err)
+				return
+			}
+			_ = res.Body.Close()
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			if err := tp.DiscoverNodesContext(context.Background()); err != nil {
+				errCh <- fmt.Errorf("discover nodes failed: %w", err)
+				return
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			_, err := tp.Metrics()
+			if err != nil {
+				errCh <- fmt.Errorf("metrics failed: %w", err)
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Fatal(err)
+	}
 }
 
 func TestTransportPerform(t *testing.T) {

@@ -36,7 +36,11 @@ and will keep track of live and dead nodes. The status of dead nodes is checked 
 
 To customize the node selection behaviour, provide a Selector implementation in the configuration.
 To replace the connection pool entirely, provide a custom ConnectionPool implementation via
-the ConnectionPoolFunc option.
+the ConnectionPoolFunc option. Discovery prefers in-place Update() when the pool implements
+UpdatableConnectionPool; pool replacement via ConnectionPoolFunc happens only when Update()
+is not available. Custom pools are synchronized by default; implement
+ConcurrentSafeConnectionPool to opt out when your custom pool is already safe
+for concurrent use.
 
 The package defines the Logger interface for logging information about request and response.
 It comes with several bundled loggers for logging in text and JSON.

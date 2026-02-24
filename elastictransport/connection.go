@@ -39,6 +39,12 @@ var (
 	_ ConnectionPool          = (*statusConnectionPool)(nil)
 	_ UpdatableConnectionPool = (*statusConnectionPool)(nil)
 	_ CloseableConnectionPool = (*statusConnectionPool)(nil)
+	_ ConnectionPool          = (*synchronizedPool)(nil)
+	_ CloseableConnectionPool = (*synchronizedPool)(nil)
+	_ connectionable          = (*synchronizedPool)(nil)
+	_ ConnectionPool          = (*synchronizedUpdatablePool)(nil)
+	_ CloseableConnectionPool = (*synchronizedUpdatablePool)(nil)
+	_ UpdatableConnectionPool = (*synchronizedUpdatablePool)(nil)
 	_ Selector                = (*roundRobinSelector)(nil)
 )
 
@@ -59,9 +65,105 @@ type UpdatableConnectionPool interface {
 	Update([]*Connection) error // Update injects newly found nodes in the cluster.
 }
 
+// ConcurrentSafeConnectionPool marks a custom pool as safe for concurrent use
+// by the transport. Pools returned by ConnectionPoolFunc that implement this
+// interface are not wrapped by synchronizedPool.
+type ConcurrentSafeConnectionPool interface {
+	ConnectionPool
+	ConcurrentSafe()
+}
+
 // CloseableConnectionPool defines the interface for the connection pool that can be closed.
 type CloseableConnectionPool interface {
 	Close(context.Context) error
+}
+
+// synchronizedPool wraps a ConnectionPool with a mutex to serialize all method
+// calls. Used to wrap user-provided pools from ConnectionPoolFunc that may not
+// be safe for concurrent use.
+//
+// Use newSynchronizedPool to construct; it returns a synchronizedUpdatablePool
+// when the inner pool implements UpdatableConnectionPool.
+type synchronizedPool struct {
+	mu   sync.Mutex
+	pool ConnectionPool
+}
+
+// synchronizedUpdatablePool extends synchronizedPool for inner pools that
+// support in-place updates. Discovery will prefer Update() over full pool
+// replacement when this interface is present.
+type synchronizedUpdatablePool struct {
+	synchronizedPool
+}
+
+// newSynchronizedPool wraps pool in a synchronized adapter by default.
+// ConcurrentSafeConnectionPool implementations are returned as-is.
+// If pool implements UpdatableConnectionPool the returned value will too, so
+// discovery can update the pool in place rather than replacing it.
+func newSynchronizedPool(pool ConnectionPool) ConnectionPool {
+	if _, ok := pool.(ConcurrentSafeConnectionPool); ok {
+		return pool
+	}
+
+	if _, ok := pool.(UpdatableConnectionPool); ok {
+		return &synchronizedUpdatablePool{synchronizedPool{pool: pool}}
+	}
+	return &synchronizedPool{pool: pool}
+}
+
+func (sp *synchronizedPool) Next() (*Connection, error) {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	return sp.pool.Next()
+}
+
+func (sp *synchronizedPool) OnSuccess(c *Connection) error {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	return sp.pool.OnSuccess(c)
+}
+
+func (sp *synchronizedPool) OnFailure(c *Connection) error {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	return sp.pool.OnFailure(c)
+}
+
+func (sp *synchronizedPool) URLs() []*url.URL {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	return sp.pool.URLs()
+}
+
+func (sp *synchronizedPool) Close(ctx context.Context) error {
+	sp.mu.Lock()
+	cp, ok := sp.pool.(CloseableConnectionPool)
+	sp.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	// Avoid holding the wrapper lock during close; in-flight callbacks also take
+	// this lock and may need to complete before the inner pool can fully close.
+	return cp.Close(ctx)
+}
+
+func (sp *synchronizedPool) connections() []*Connection {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	if cp, ok := sp.pool.(connectionable); ok {
+		return cp.connections()
+	}
+	return nil
+}
+
+func (sp *synchronizedUpdatablePool) Update(conns []*Connection) error {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	up, ok := sp.pool.(UpdatableConnectionPool)
+	if !ok {
+		return fmt.Errorf("inner pool %T does not implement UpdatableConnectionPool", sp.pool)
+	}
+	return up.Update(conns)
 }
 
 // Connection represents a connection to a node.
@@ -240,8 +342,10 @@ func (cp *statusConnectionPool) OnFailure(c *Connection) error {
 }
 
 // Update merges the existing live and dead connections with the latest nodes discovered from the cluster.
-// ConnectionPool must be locked before calling.
 func (cp *statusConnectionPool) Update(connections []*Connection) error {
+	cp.Lock()
+	defer cp.Unlock()
+
 	if len(connections) == 0 {
 		return errors.New("no connections provided, connection pool left untouched")
 	}
@@ -354,7 +458,9 @@ func (cp *statusConnectionPool) isClosed() bool {
 }
 
 func (cp *statusConnectionPool) connections() []*Connection {
-	var conns []*Connection
+	cp.Lock()
+	defer cp.Unlock()
+	conns := make([]*Connection, 0, len(cp.live)+len(cp.dead))
 	conns = append(conns, cp.live...)
 	conns = append(conns, cp.dead...)
 	return conns
