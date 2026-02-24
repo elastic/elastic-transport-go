@@ -30,36 +30,32 @@ import (
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 )
 
-var defaultResponse = http.Response{
-	Status:        "200 OK",
-	StatusCode:    200,
-	ContentLength: 13,
-	Header:        http.Header(map[string][]string{"Content-Type": {"application/json"}}),
-	Body:          io.NopCloser(strings.NewReader(`{"foo":"bar"}`)),
-}
-
-type FakeTransport struct {
-	FakeResponse *http.Response
-}
+type FakeTransport struct{}
 
 func (t *FakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	return t.FakeResponse, nil
+	return &http.Response{
+		Status:        "200 OK",
+		StatusCode:    200,
+		ContentLength: 13,
+		Header:        http.Header(map[string][]string{"Content-Type": {"application/json"}}),
+		Body:          io.NopCloser(strings.NewReader(`{"foo":"bar"}`)),
+	}, nil
 }
 
 func newFakeTransport(b *testing.B) *FakeTransport {
-	return &FakeTransport{FakeResponse: &defaultResponse}
+	return &FakeTransport{}
 }
 
 func BenchmarkTransport(b *testing.B) {
 	b.ReportAllocs()
 
 	b.Run("Defaults", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			tp, _ := elastictransport.New(elastictransport.Config{
-				URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
-				Transport: newFakeTransport(b),
-			})
+		tp, _ := elastictransport.New(elastictransport.Config{
+			URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
+			Transport: newFakeTransport(b),
+		})
 
+		for i := 0; i < b.N; i++ {
 			req, _ := http.NewRequest("GET", "/abc", nil)
 			_, err := tp.Perform(req)
 			if err != nil {
@@ -72,13 +68,13 @@ func BenchmarkTransport(b *testing.B) {
 		hdr := http.Header{}
 		hdr.Set("Accept", "application/yaml")
 
-		for i := 0; i < b.N; i++ {
-			tp, _ := elastictransport.New(elastictransport.Config{
-				URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
-				Header:    hdr,
-				Transport: newFakeTransport(b),
-			})
+		tp, _ := elastictransport.New(elastictransport.Config{
+			URLs:      []*url.URL{{Scheme: "http", Host: "foo"}},
+			Header:    hdr,
+			Transport: newFakeTransport(b),
+		})
 
+		for i := 0; i < b.N; i++ {
 			req, _ := http.NewRequest("GET", "/abc", nil)
 			_, err := tp.Perform(req)
 			if err != nil {
