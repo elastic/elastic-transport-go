@@ -92,9 +92,11 @@ type Config struct {
 	MaxRetries   int
 	RetryBackoff func(attempt int) time.Duration
 
+	// CompressRequestBody enables gzip compression for request bodies.
 	CompressRequestBody      bool
 	CompressRequestBodyLevel int
-	// If PoolCompressor is true, a sync.Pool based gzip writer is used. Should be enabled with CompressRequestBody.
+	// PoolCompressor enables a sync.Pool based gzip writer.
+	// It should be enabled with CompressRequestBody.
 	PoolCompressor bool
 
 	EnableMetrics     bool

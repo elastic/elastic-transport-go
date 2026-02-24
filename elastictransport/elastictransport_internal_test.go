@@ -1246,7 +1246,7 @@ func TestRequestCompression(t *testing.T) {
 			inputBody:        "elasticsearch",
 		},
 		{
-			name:            "CompressedDefault",
+			name:            "CompressedDefaultPooled",
 			compressionFlag: true,
 			poolCompressor:  true,
 			inputBody:       "elasticsearch",

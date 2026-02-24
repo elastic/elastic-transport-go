@@ -34,6 +34,20 @@ type errReader struct{ err error }
 func (e *errReader) Read([]byte) (int, error) { return 0, e.err }
 func (e *errReader) Close() error             { return nil }
 
+type trackingPool struct {
+	value    any
+	putCalls int
+}
+
+func (p *trackingPool) Get() any {
+	return p.value
+}
+
+func (p *trackingPool) Put(v any) {
+	p.putCalls++
+	p.value = v
+}
+
 func decompressGzip(t *testing.T, buf *bytes.Buffer) string {
 	t.Helper()
 	zr, err := gzip.NewReader(buf)
@@ -134,6 +148,25 @@ func TestGzipPooledCollectBuffer(t *testing.T) {
 	}
 	if got := decompressGzip(t, buf); got != "another" {
 		t.Fatalf("expected %q, got %q", "another", got)
+	}
+}
+
+func TestGzipPooledBufferReturnedOnError(t *testing.T) {
+	c := newPooledGzipCompressor(gzip.DefaultCompression).(*pooledGzipCompressor)
+
+	pool := &trackingPool{value: new(bytes.Buffer)}
+	c.bufferPool = pool
+
+	_, err := c.compress(&errReader{err: errors.New("synthetic read error")})
+	if err == nil {
+		t.Fatal("expected error from failing reader")
+	}
+
+	if pool.putCalls != 1 {
+		t.Fatalf("expected buffer to be returned once, got %d", pool.putCalls)
+	}
+	if _, ok := pool.value.(*bytes.Buffer); !ok || pool.value == nil {
+		t.Fatal("expected buffer pool to contain a bytes.Buffer after error")
 	}
 }
 
