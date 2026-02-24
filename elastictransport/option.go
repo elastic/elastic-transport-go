@@ -19,7 +19,6 @@ package elastictransport
 
 import (
 	"compress/gzip"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -288,13 +287,3 @@ func WithInterceptors(interceptors ...InterceptorFunc) Option {
 	}}
 }
 
-// errOption returns an Option that always fails with the given error.
-// It allows option constructors to report argument validation errors lazily
-// at client-construction time rather than at option-creation time.
-var errOption = func(err error) Option {
-	return Option{apply: func(*Config) error { return err }}
-}
-
-// ErrInvalidOption is the base error returned when an Option receives an
-// invalid argument. Use errors.Is to check for it.
-var ErrInvalidOption = errors.New("invalid option")
