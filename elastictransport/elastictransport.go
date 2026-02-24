@@ -395,9 +395,11 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		}
 
 		// Set up time measures and execute the request
+		conn.ActiveRequests.Add(1)
 		start := time.Now().UTC()
 		res, err = c.roundTrip(req)
 		dur := time.Since(start)
+		conn.ActiveRequests.Add(-1)
 
 		// Log request and response
 		if c.logger != nil {
