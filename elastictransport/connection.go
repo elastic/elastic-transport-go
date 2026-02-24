@@ -109,9 +109,11 @@ type statusConnectionPool struct {
 }
 
 type roundRobinSelector struct {
-	sync.Mutex
+	curr uint64 // Atomic counter for next connection index
+}
 
-	curr int // Index of the current connection
+func newRoundRobinSelector() *roundRobinSelector {
+	return &roundRobinSelector{curr: math.MaxUint64}
 }
 
 // NewConnectionPool creates and returns a default connection pool.
@@ -120,7 +122,7 @@ func NewConnectionPool(conns []*Connection, selector Selector) (ConnectionPool, 
 		return &singleConnectionPool{connection: conns[0]}, nil
 	}
 	if selector == nil {
-		selector = &roundRobinSelector{curr: -1}
+		selector = newRoundRobinSelector()
 	}
 	return &statusConnectionPool{live: slices.Clone(conns), selector: selector, closeC: make(chan struct{})}, nil
 }
@@ -427,11 +429,8 @@ func (cp *statusConnectionPool) scheduleResurrect(c *Connection) {
 
 // Select returns the connection in a round-robin fashion.
 func (s *roundRobinSelector) Select(conns []*Connection) (*Connection, error) {
-	s.Lock()
-	defer s.Unlock()
-
-	s.curr = (s.curr + 1) % len(conns)
-	return conns[s.curr], nil
+	index := atomic.AddUint64(&s.curr, 1) % uint64(len(conns))
+	return conns[int(index)], nil
 }
 
 // markAsDead marks the connection as dead.

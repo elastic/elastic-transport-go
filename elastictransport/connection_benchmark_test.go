@@ -94,7 +94,7 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 	b.Run("Next()", func(b *testing.B) {
 		pool := &statusConnectionPool{
 			live:     slices.Clone(conns),
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		b.Run("Single     ", func(b *testing.B) {
@@ -122,7 +122,7 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 	b.Run("OnFailure()", func(b *testing.B) {
 		pool := &statusConnectionPool{
 			live:     slices.Clone(conns),
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		b.Run("Single     ", func(b *testing.B) {
@@ -158,7 +158,7 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 	b.Run("OnSuccess()", func(b *testing.B) {
 		pool := &statusConnectionPool{
 			live:     slices.Clone(conns),
-			selector: &roundRobinSelector{curr: -1},
+			selector: newRoundRobinSelector(),
 		}
 
 		b.Run("Single     ", func(b *testing.B) {
@@ -196,7 +196,7 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 		b.Run("Single", func(b *testing.B) {
 			pool := &statusConnectionPool{
 				live:     slices.Clone(conns),
-				selector: &roundRobinSelector{curr: -1},
+				selector: newRoundRobinSelector(),
 			}
 			c, err := pool.Next()
 			if err != nil {
@@ -219,7 +219,7 @@ func BenchmarkStatusConnectionPool(b *testing.B) {
 		b.Run("Parallel (10)", func(b *testing.B) {
 			pool := &statusConnectionPool{
 				live:     slices.Clone(conns),
-				selector: &roundRobinSelector{curr: -1},
+				selector: newRoundRobinSelector(),
 			}
 			b.SetParallelism(10)
 			b.RunParallel(func(pb *testing.PB) {
