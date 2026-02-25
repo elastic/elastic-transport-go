@@ -21,14 +21,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -213,45 +208,16 @@ func New(cfg Config) (*Client, error) {
 	}
 
 	if transport, ok := cfg.Transport.(*http.Transport); ok {
-		if cfg.CertificateFingerprint != "" {
-			transport.DialTLSContext = func(_ context.Context, network, addr string) (net.Conn, error) {
-				fingerprint, _ := hex.DecodeString(cfg.CertificateFingerprint)
-
-				c, err := tls.Dial(network, addr, &tls.Config{InsecureSkipVerify: true})
-				if err != nil {
-					return nil, err
-				}
-
-				// Retrieve the connection state from the remote server.
-				cState := c.ConnectionState()
-				for _, cert := range cState.PeerCertificates {
-					// Compute digest for each certificate.
-					digest := sha256.Sum256(cert.Raw)
-
-					// Provided fingerprint should match at least one certificate from remote before we continue.
-					if bytes.Equal(digest[0:], fingerprint) {
-						return c, nil
-					}
-				}
-				return nil, fmt.Errorf("fingerprint mismatch, provided: %s", cfg.CertificateFingerprint)
-			}
-		}
-	}
-
-	if cfg.CACert != nil {
-		httpTransport, ok := cfg.Transport.(*http.Transport)
-		if !ok {
-			return nil, fmt.Errorf("unable to set CA certificate for transport of type %T", cfg.Transport)
+		if cfg.CACert != nil || cfg.CertificateFingerprint != "" {
+			transport = transport.Clone()
+			cfg.Transport = transport
 		}
 
-		httpTransport = httpTransport.Clone()
-		httpTransport.TLSClientConfig.RootCAs = x509.NewCertPool()
-
-		if ok := httpTransport.TLSClientConfig.RootCAs.AppendCertsFromPEM(cfg.CACert); !ok {
-			return nil, errors.New("unable to add CA certificate")
+		if err := ConfigureTLS(transport, cfg.CACert, cfg.CertificateFingerprint); err != nil {
+			return nil, err
 		}
-
-		cfg.Transport = httpTransport
+	} else if cfg.CACert != nil || cfg.CertificateFingerprint != "" {
+		return nil, fmt.Errorf("unable to configure TLS for transport of type %T", cfg.Transport)
 	}
 
 	if len(cfg.RetryOnStatus) == 0 {
