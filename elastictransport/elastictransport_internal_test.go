@@ -1998,3 +1998,151 @@ func TestNewClientInterceptors(t *testing.T) {
 		}
 	})
 }
+
+func TestPerformWithStats(t *testing.T) {
+	t.Run("Count retries due to retryOnStatus correctly", func(t *testing.T) {
+		var (
+			i       int
+			numReqs = 4 // 1 initial + 3 retries
+		)
+
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs:       []*url.URL{u},
+			MaxRetries: 5,
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					i++
+					if i == numReqs {
+						return &http.Response{StatusCode: 200, Status: "OK"}, nil
+					}
+					// Return different retryable status codes
+					status := []int{502, 503, 504}[(i-1)%3]
+					return &http.Response{StatusCode: status}, nil
+				},
+			}})
+
+		req, _ := http.NewRequest("GET", "/abc", nil)
+
+		res, stats, err := tp.PerformWithStats(req)
+
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		if res.StatusCode != 200 {
+			t.Errorf("Unexpected response status: %d", res.StatusCode)
+		}
+
+		expectedRetries := 3 // 3 requests with retryable status codes
+		if stats.RequestsRetried != expectedRetries {
+			t.Errorf("Expected RequestsRetried=%d, got=%d", expectedRetries, stats.RequestsRetried)
+		}
+
+		if i != numReqs {
+			t.Errorf("Unexpected number of requests, want=%d, got=%d", numReqs, i)
+		}
+	})
+
+	t.Run("Count zero retries when no retryable status codes", func(t *testing.T) {
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: 200, Status: "OK"}, nil
+				},
+			}})
+
+		req, _ := http.NewRequest("GET", "/abc", nil)
+
+		res, stats, err := tp.PerformWithStats(req)
+
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		if res.StatusCode != 200 {
+			t.Errorf("Unexpected response status: %d", res.StatusCode)
+		}
+
+		if stats.RequestsRetried != 0 {
+			t.Errorf("Expected RequestsRetried=0, got=%d", stats.RequestsRetried)
+		}
+	})
+
+	t.Run("Count retries correctly when max retries reached", func(t *testing.T) {
+		var i int
+		maxRetries := 2
+
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs:       []*url.URL{u},
+			MaxRetries: maxRetries,
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					i++
+					return &http.Response{StatusCode: 503}, nil
+				},
+			}})
+
+		req, _ := http.NewRequest("GET", "/abc", nil)
+
+		res, stats, err := tp.PerformWithStats(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		// Should have made maxRetries+1 total requests (initial + retries)
+		expectedRequests := maxRetries + 1
+		if i != expectedRequests {
+			t.Errorf("Expected %d total requests, got=%d", expectedRequests, i)
+		}
+
+		// Should count exactly maxRetries retries
+		if stats.RequestsRetried != maxRetries {
+			t.Errorf("Expected RequestsRetried=%d, got=%d", maxRetries, stats.RequestsRetried)
+		}
+
+		if res.StatusCode != 503 {
+			t.Errorf("Expected final response status 503, got=%d", res.StatusCode)
+		}
+	})
+
+	t.Run("Don't count retries for network errors", func(t *testing.T) {
+		var (
+			i       int
+			numReqs = 3
+		)
+
+		u, _ := url.Parse("http://foo.bar")
+		tp, _ := New(Config{
+			URLs: []*url.URL{u},
+			Transport: &mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					i++
+					if i == numReqs {
+						return &http.Response{StatusCode: 200, Status: "OK"}, nil
+					}
+					return nil, &mockNetError{error: fmt.Errorf("Mock network error (%d)", i)}
+				},
+			}})
+
+		req, _ := http.NewRequest("GET", "/abc", nil)
+
+		res, stats, err := tp.PerformWithStats(req)
+
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		// Should not count network error retries in RequestsRetried
+		if stats.RequestsRetried != 0 {
+			t.Errorf("Expected RequestsRetried=0 for network errors, got=%d", stats.RequestsRetried)
+		}
+
+		if res.StatusCode != 200 {
+			t.Errorf("Expected final response status 200, got=%d", res.StatusCode)
+		}
+	})
+}

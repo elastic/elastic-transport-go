@@ -50,6 +50,7 @@ var (
 // Interface defines the interface for HTTP client.
 type Interface interface {
 	Perform(*http.Request) (*http.Response, error)
+	PerformWithStats(*http.Request) (*http.Response, *PerformStats, error)
 }
 
 // Instrumented allows to retrieve the current transport Instrumentation
@@ -60,6 +61,12 @@ type Instrumented interface {
 // Closeable allows graceful closing of the underlying transport
 type Closeable interface {
 	Close(context.Context) error
+}
+
+// PerformStats contains statistics for the Perform operation
+type PerformStats struct {
+	// RequestsRetried is the number of requests that were retried due to RetryOnStatus
+	RequestsRetried int
 }
 
 // Config represents the configuration of HTTP client.
@@ -343,15 +350,16 @@ func New(cfg Config) (*Client, error) {
 	return &client, nil
 }
 
-// Perform executes the request and returns a response or error.
-func (c *Client) Perform(req *http.Request) (*http.Response, error) {
+// perform executes the request and returns a response with statistics or error.
+func (c *Client) perform(req *http.Request) (*http.Response, *PerformStats, error) {
 	if c.isClosed() {
-		return nil, ErrClosed
+		return nil, nil, ErrClosed
 	}
 
 	var (
-		res *http.Response
-		err error
+		res   *http.Response
+		err   error
+		stats PerformStats
 	)
 
 	// Record metrics, when enabled
@@ -367,7 +375,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		if c.compressRequestBody {
 			buf, err := c.gzipCompressor.compress(req.Body)
 			if err != nil {
-				return nil, err
+				return nil, &stats, err
 			}
 			defer c.gzipCompressor.collectBuffer(buf)
 
@@ -386,7 +394,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 				var buf bytes.Buffer
 				_, err := buf.ReadFrom(req.Body)
 				if err != nil {
-					return nil, err
+					return nil, &stats, err
 				}
 
 				req.GetBody = func() (io.ReadCloser, error) {
@@ -414,7 +422,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 			if c.logger != nil {
 				c.logRoundTrip(req, nil, err, time.Time{}, time.Duration(0))
 			}
-			return nil, fmt.Errorf("cannot get connection: %s", err)
+			return nil, &stats, fmt.Errorf("cannot get connection: %s", err)
 		}
 
 		// Update request
@@ -424,7 +432,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		if !c.disableRetry && i > 0 && req.Body != nil && req.Body != http.NoBody {
 			body, err := req.GetBody()
 			if err != nil {
-				return nil, fmt.Errorf("cannot get request body: %s", err)
+				return nil, &stats, fmt.Errorf("cannot get request body: %s", err)
 			}
 			req.Body = body
 		}
@@ -487,6 +495,7 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 
 		// Drain and close body when retrying after response
 		if shouldCloseBody && i < c.maxRetries {
+			stats.RequestsRetried++
 			if res.Body != nil {
 				_, _ = io.Copy(io.Discard, res.Body)
 				_ = res.Body.Close()
@@ -516,7 +525,21 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 	}
 
 	// TODO(karmi): Wrap error
-	return res, err
+	return res, &stats, err
+}
+
+// Perform executes the request and returns a response or error.
+func (c *Client) Perform(req *http.Request) (*http.Response, error) {
+	res, _, err := c.perform(req)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// PerformWithStats executes the request and returns a response with statistics or error.
+func (c *Client) PerformWithStats(req *http.Request) (*http.Response, *PerformStats, error) {
+	return c.perform(req)
 }
 
 // URLs returns a list of transport URLs.
