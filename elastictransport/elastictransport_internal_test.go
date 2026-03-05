@@ -2013,14 +2013,11 @@ func TestPerformWithStats(t *testing.T) {
 			Transport: &mockTransp{
 				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
 					i++
-					fmt.Printf("Request #%d", i)
 					if i == numReqs {
-						fmt.Print(": 200\n")
 						return &http.Response{StatusCode: 200, Status: "OK"}, nil
 					}
 					// Return different retryable status codes
 					status := []int{502, 503, 504}[(i-1)%3]
-					fmt.Printf(": %d\n", status)
 					return &http.Response{StatusCode: status}, nil
 				},
 			}})
@@ -2085,7 +2082,6 @@ func TestPerformWithStats(t *testing.T) {
 			Transport: &mockTransp{
 				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
 					i++
-					fmt.Printf("Request #%d: 503\n", i)
 					return &http.Response{StatusCode: 503}, nil
 				},
 			}})
@@ -2125,12 +2121,9 @@ func TestPerformWithStats(t *testing.T) {
 			Transport: &mockTransp{
 				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
 					i++
-					fmt.Printf("Request #%d", i)
 					if i == numReqs {
-						fmt.Print(": 200\n")
 						return &http.Response{StatusCode: 200, Status: "OK"}, nil
 					}
-					fmt.Print(": ERR\n")
 					return nil, &mockNetError{error: fmt.Errorf("Mock network error (%d)", i)}
 				},
 			}})
