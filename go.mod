@@ -2,7 +2,7 @@ module github.com/elastic/elastic-transport-go/v8
 
 go 1.21
 
-toolchain go1.25.7
+toolchain go1.25.8
 
 require (
 	go.opentelemetry.io/otel v1.29.0
