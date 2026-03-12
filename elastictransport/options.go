@@ -79,8 +79,3 @@ func (os Options) applyTo(cfg *Config) error {
 	return nil
 }
 
-// ValidateOptions is a convenience function that validates the given options
-// without constructing a client. It is equivalent to Options(opts).Validate().
-func ValidateOptions(opts ...Option) error {
-	return Options(opts).Validate()
-}
