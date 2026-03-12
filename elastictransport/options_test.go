@@ -150,18 +150,18 @@ func TestOptionStringNonSensitive(t *testing.T) {
 func TestValidateOptions(t *testing.T) {
 	t.Run("valid options", func(t *testing.T) {
 		u, _ := url.Parse("http://localhost:9200")
-		err := ValidateOptions(
+		err := Options{
 			WithURLs(u),
 			WithMaxRetries(3),
 			WithCompression(),
-		)
+		}.Validate()
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)
 		}
 	})
 
 	t.Run("single invalid option", func(t *testing.T) {
-		err := ValidateOptions(WithMaxRetries(-1))
+		err := Options{WithMaxRetries(-1)}.Validate()
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -171,10 +171,10 @@ func TestValidateOptions(t *testing.T) {
 	})
 
 	t.Run("multiple invalid options", func(t *testing.T) {
-		err := ValidateOptions(
+		err := Options{
 			WithMaxRetries(-1),
 			WithCompression(99),
-		)
+		}.Validate()
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -187,14 +187,14 @@ func TestValidateOptions(t *testing.T) {
 	})
 
 	t.Run("empty options", func(t *testing.T) {
-		err := ValidateOptions()
+		err := Options{}.Validate()
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)
 		}
 	})
 
 	t.Run("zero-value option is safe", func(t *testing.T) {
-		err := ValidateOptions(Option{})
+		err := Options{Option{}}.Validate()
 		if err != nil {
 			t.Fatalf("zero-value Option should not cause error: %s", err)
 		}

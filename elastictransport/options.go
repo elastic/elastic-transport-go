@@ -78,4 +78,3 @@ func (os Options) applyTo(cfg *Config) error {
 	}
 	return nil
 }
-

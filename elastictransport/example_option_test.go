@@ -146,7 +146,7 @@ func ExampleNewClient_interceptors() {
 	// Output: client created with interceptors
 }
 
-func ExampleValidateOptions() {
+func ExampleOptions_Validate() {
 	u, _ := url.Parse("http://localhost:9200")
 
 	opts := elastictransport.Options{
@@ -167,10 +167,10 @@ func ExampleValidateOptions() {
 	// Output: localhost:9200
 }
 
-func ExampleValidateOptions_invalid() {
-	err := elastictransport.ValidateOptions(
+func ExampleOptions_Validate_invalid() {
+	err := elastictransport.Options{
 		elastictransport.WithMaxRetries(-1),
-	)
+	}.Validate()
 	fmt.Println(err)
 	// Output: transport options: WithMaxRetries: value must be >= 0, got -1
 }
