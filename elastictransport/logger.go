@@ -224,7 +224,7 @@ func (l *CurlLogger) LogRoundTrip(req *http.Request, res *http.Response, err err
 				continue
 			}
 			v := strings.Join(vv, ",")
-			b.WriteString(fmt.Sprintf(" -H '%s: %s'", k, v))
+			fmt.Fprintf(&b, " -H '%s: %s'", k, v)
 		}
 	}
 
