@@ -170,10 +170,11 @@ func (sp *synchronizedUpdatablePool) Update(conns []*Connection) error {
 type Connection struct {
 	sync.Mutex
 
-	URL       *url.URL
-	IsDead    bool
-	DeadSince time.Time
-	Failures  int
+	URL            *url.URL
+	IsDead         bool
+	DeadSince      time.Time
+	Failures       int
+	ActiveRequests atomic.Int64
 
 	ID         string
 	Name       string
