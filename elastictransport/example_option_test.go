@@ -20,6 +20,7 @@ package elastictransport_test
 import (
 	"compress/gzip"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -143,4 +144,86 @@ func ExampleNewClient_interceptors() {
 
 	fmt.Println("client created with interceptors")
 	// Output: client created with interceptors
+}
+
+func ExampleOptions_Validate() {
+	u, _ := url.Parse("http://localhost:9200")
+
+	opts := elastictransport.Options{
+		elastictransport.WithURLs(u),
+		elastictransport.WithMaxRetries(5),
+	}
+
+	if err := opts.Validate(); err != nil {
+		log.Fatal(err)
+	}
+
+	tp, err := elastictransport.NewClient(opts...)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(tp.URLs()[0].Host)
+	// Output: localhost:9200
+}
+
+func ExampleOptions_Validate_invalid() {
+	err := elastictransport.Options{
+		elastictransport.WithMaxRetries(-1),
+	}.Validate()
+	fmt.Println(err)
+	// Output: transport options: WithMaxRetries: value must be >= 0, got -1
+}
+
+func ExampleOption_String() {
+	opt := elastictransport.WithMaxRetries(5)
+	fmt.Println(opt)
+	// Output: WithMaxRetries(5)
+}
+
+func ExampleOption_String_sensitive() {
+	opt := elastictransport.WithAPIKey("Zm9vYmFy")
+
+	fmt.Println(opt)
+	fmt.Println(opt.Describe(true))
+	// Output:
+	// WithAPIKey(****)
+	// WithAPIKey("Zm9vYmFy")
+}
+
+func ExampleOptions_Visit() {
+	u, _ := url.Parse("http://localhost:9200")
+
+	opts := elastictransport.Options{
+		elastictransport.WithURLs(u),
+		elastictransport.WithMaxRetries(3),
+		elastictransport.WithMetrics(),
+	}
+
+	opts.Visit(func(o elastictransport.Option) {
+		fmt.Println(o.Name())
+	})
+	// Output:
+	// WithURLs
+	// WithMaxRetries
+	// WithMetrics
+}
+
+func ExampleOptions_Describe() {
+	opts := elastictransport.Options{
+		elastictransport.WithMaxRetries(3),
+		elastictransport.WithAPIKey("secret-key"),
+	}
+
+	fmt.Println("--- masked ---")
+	fmt.Println(opts.Describe(false))
+	fmt.Println("--- unmasked ---")
+	fmt.Println(opts.Describe(true))
+	// Output:
+	// --- masked ---
+	// WithMaxRetries(3)
+	// WithAPIKey(****)
+	// --- unmasked ---
+	// WithMaxRetries(3)
+	// WithAPIKey("secret-key")
 }

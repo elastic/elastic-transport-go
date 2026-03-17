@@ -36,6 +36,27 @@ the last value wins.
 The older [New] + [Config] API is still available for backwards compatibility
 but is deprecated. New code should prefer [NewClient].
 
+# Validation and Debugging
+
+Use [ValidateOptions] or [Options.Validate] to check option values before
+creating a client:
+
+	opts := elastictransport.Options{
+	    elastictransport.WithURLs(u),
+	    elastictransport.WithMaxRetries(5),
+	}
+	if err := opts.Validate(); err != nil {
+	    log.Fatal(err)
+	}
+
+Each [Option] implements [fmt.Stringer] with sensitive values redacted by
+default. Call [Option.Describe](true) to include secrets:
+
+	fmt.Println(opt)               // WithAPIKey(****)
+	fmt.Println(opt.Describe(true)) // WithAPIKey("Zm9vYmFy")
+
+Use [Options.Visit] to iterate over all options programmatically.
+
 # HTTP Transport
 
 The default HTTP transport of the client is http.Transport; use [WithTransport]
