@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.10.0](https://github.com/elastic/elastic-transport-go/compare/v8.9.0...v8.10.0) (2026-03-18)
+
+
+### Features
+
+* Add option validation, inspection and debugging API ([#78](https://github.com/elastic/elastic-transport-go/issues/78)) ([e17a3a7](https://github.com/elastic/elastic-transport-go/commit/e17a3a7ad96417af4cbbe1c5a660c810779a90f6))
+
 ## [8.9.0](https://github.com/elastic/elastic-transport-go/compare/v8.8.0...v8.9.0) (2026-02-24)
 
 
