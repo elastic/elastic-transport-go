@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -30,9 +31,11 @@ import (
 	"time"
 )
 
-var debugLogger DebuggingLogger
-
 // Logger defines an interface for logging request and response.
+//
+// Deprecated: Use [LeveledLogger] and [WithLeveledLogger] instead.
+// When a [LeveledLogger] is configured, round-trip logging is handled
+// automatically.
 type Logger interface {
 	// LogRoundTrip should not modify the request or response, except for consuming and closing the body.
 	// Implementations have to check for nil values in request and response.
@@ -43,13 +46,96 @@ type Logger interface {
 	ResponseBodyEnabled() bool
 }
 
+// LeveledLogger defines a structured, leveled logger for transport-internal
+// events such as connection management and node discovery.
+//
+// Each method accepts a human-readable message and an optional sequence of
+// alternating key-value pairs (the same convention used by [log/slog]).
+//
+// Implementations must be safe for concurrent use.
+//
+// Use [WithLeveledLogger] to configure a leveled logger on the transport client.
+// See [SlogLogger] for a ready-made adapter that wraps [*slog.Logger].
+type LeveledLogger interface {
+	Debug(msg string, keysAndValues ...any)
+	Info(msg string, keysAndValues ...any)
+	Warn(msg string, keysAndValues ...any)
+	Error(msg string, keysAndValues ...any)
+}
+
+// SlogLogger is a [LeveledLogger] adapter that delegates to a [*slog.Logger].
+type SlogLogger struct {
+	Logger *slog.Logger
+}
+
+func (l *SlogLogger) Debug(msg string, keysAndValues ...any) {
+	l.Logger.Debug(msg, keysAndValues...)
+}
+
+func (l *SlogLogger) Info(msg string, keysAndValues ...any) {
+	l.Logger.Info(msg, keysAndValues...)
+}
+
+func (l *SlogLogger) Warn(msg string, keysAndValues ...any) {
+	l.Logger.Warn(msg, keysAndValues...)
+}
+
+func (l *SlogLogger) Error(msg string, keysAndValues ...any) {
+	l.Logger.Error(msg, keysAndValues...)
+}
+
+// leveledRoundTripLogger is an internal adapter that implements [Logger] by
+// delegating to a [LeveledLogger]. It is auto-wired when [WithLeveledLogger]
+// is set and [WithLogger] is not.
+type leveledRoundTripLogger struct {
+	logger             LeveledLogger
+	enableRequestBody  bool
+	enableResponseBody bool
+}
+
+func (l *leveledRoundTripLogger) LogRoundTrip(req *http.Request, res *http.Response, err error, start time.Time, dur time.Duration) error {
+	kv := []any{
+		"method", req.Method,
+		"url", req.URL.String(),
+		"duration", dur,
+	}
+	if err != nil {
+		l.logger.Error("request failed", append(kv, "error", err)...)
+		return nil
+	}
+	kv = append(kv, "status", resStatusCode(res))
+	if l.enableRequestBody && req.Body != nil && req.Body != http.NoBody {
+		if req.GetBody != nil {
+			body, _ := req.GetBody()
+			var buf bytes.Buffer
+			_, _ = buf.ReadFrom(body)
+			kv = append(kv, "request.body", buf.String())
+		}
+	}
+	if l.enableResponseBody && res != nil && res.Body != nil && res.Body != http.NoBody {
+		defer func() { _ = res.Body.Close() }()
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(res.Body)
+		kv = append(kv, "response.body", buf.String())
+	}
+	l.logger.Info("request", kv...)
+	return nil
+}
+
+func (l *leveledRoundTripLogger) RequestBodyEnabled() bool  { return l.enableRequestBody }
+func (l *leveledRoundTripLogger) ResponseBodyEnabled() bool { return l.enableResponseBody }
+
 // DebuggingLogger defines the interface for a debugging logger.
+//
+// Deprecated: Use [LeveledLogger] and [WithLeveledLogger] instead.
 type DebuggingLogger interface {
 	Log(a ...interface{}) error
 	Logf(format string, a ...interface{}) error
 }
 
 // TextLogger prints the log message in plain text.
+//
+// Deprecated: Use [LeveledLogger] and [WithLeveledLogger] instead.
 type TextLogger struct {
 	Output             io.Writer
 	EnableRequestBody  bool
@@ -57,6 +143,8 @@ type TextLogger struct {
 }
 
 // ColorLogger prints the log message in a terminal-optimized plain text.
+//
+// Deprecated: Use [LeveledLogger] and [WithLeveledLogger] instead.
 type ColorLogger struct {
 	Output             io.Writer
 	EnableRequestBody  bool
@@ -64,6 +152,8 @@ type ColorLogger struct {
 }
 
 // CurlLogger prints the log message as a runnable curl command.
+//
+// Deprecated: Use [LeveledLogger] and [WithLeveledLogger] instead.
 type CurlLogger struct {
 	Output             io.Writer
 	EnableRequestBody  bool
@@ -71,6 +161,8 @@ type CurlLogger struct {
 }
 
 // JSONLogger prints the log message as JSON.
+//
+// Deprecated: Use [LeveledLogger] and [WithLeveledLogger] instead.
 type JSONLogger struct {
 	Output             io.Writer
 	EnableRequestBody  bool

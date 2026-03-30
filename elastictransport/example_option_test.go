@@ -21,8 +21,10 @@ import (
 	"compress/gzip"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
@@ -207,6 +209,23 @@ func ExampleOptions_Visit() {
 	// WithURLs
 	// WithMaxRetries
 	// WithMetrics
+}
+
+func ExampleNewClient_leveledLogger() {
+	u, _ := url.Parse("http://localhost:9200")
+
+	_, err := elastictransport.NewClient(
+		elastictransport.WithURLs(u),
+		elastictransport.WithLeveledLogger(&elastictransport.SlogLogger{
+			Logger: slog.New(slog.NewJSONHandler(os.Stderr, nil)),
+		}),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("client created with leveled logger")
+	// Output: client created with leveled logger
 }
 
 func ExampleOptions_Describe() {

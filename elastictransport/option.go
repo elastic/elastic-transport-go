@@ -166,10 +166,50 @@ func WithTransport(rt http.RoundTripper) Option {
 }
 
 // WithLogger sets the Logger used to log request and response information.
+// WithLogger sets a round-trip [Logger] for request/response logging.
+//
+// Deprecated: Use [WithLeveledLogger] instead. When both are set,
+// WithLogger takes precedence for round-trip logging.
 func WithLogger(l Logger) Option {
 	return newOption("WithLogger", fmt.Sprintf("WithLogger(%T)", l),
 		func(c *Config) error {
 			c.Logger = l
+			return nil
+		})
+}
+
+// WithLeveledLogger sets a structured, leveled logger for all transport events
+// including request/response round-trips, node discovery, connection
+// resurrection, and connection removal.
+//
+// When [WithLogger] is not set, the leveled logger also handles round-trip
+// logging at Info level (errors at Error level). When [WithLogger] is
+// explicitly set, it takes precedence for round-trip logging and the leveled
+// logger is used only for connection-management events.
+//
+// Use [WithLeveledLoggerBodyLogging] to include request and/or response bodies
+// in round-trip log entries.
+//
+// The provided logger must be safe for concurrent use. See [SlogLogger] for a
+// ready-made adapter that wraps [*slog.Logger].
+func WithLeveledLogger(l LeveledLogger) Option {
+	return newOption("WithLeveledLogger", fmt.Sprintf("WithLeveledLogger(%T)", l),
+		func(c *Config) error {
+			c.LeveledLogger = l
+			return nil
+		})
+}
+
+// WithLeveledLoggerBodyLogging enables request and/or response body capture
+// in round-trip log entries produced by the [LeveledLogger]. Has no effect
+// when [WithLogger] is explicitly set (the [Logger] implementation controls
+// body logging in that case).
+func WithLeveledLoggerBodyLogging(enableRequestBody, enableResponseBody bool) Option {
+	return newOption("WithLeveledLoggerBodyLogging",
+		fmt.Sprintf("WithLeveledLoggerBodyLogging(request=%t, response=%t)", enableRequestBody, enableResponseBody),
+		func(c *Config) error {
+			c.LeveledLoggerRequestBody = enableRequestBody
+			c.LeveledLoggerResponseBody = enableResponseBody
 			return nil
 		})
 }
@@ -312,7 +352,10 @@ func WithMetrics() Option {
 }
 
 // WithDebugLogger enables a debug logger that writes connection-management
-// information to os.Stdout.
+// information via [slog.Default].
+//
+// Deprecated: Use [WithLeveledLogger] instead for full control over log
+// destination, levels, and structured output.
 func WithDebugLogger() Option {
 	return newOption("WithDebugLogger", "WithDebugLogger()", func(c *Config) error {
 		c.EnableDebugLogger = true

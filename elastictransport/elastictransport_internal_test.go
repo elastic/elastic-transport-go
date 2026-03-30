@@ -1998,3 +1998,268 @@ func TestNewClientInterceptors(t *testing.T) {
 		}
 	})
 }
+
+func TestLeveledLogger(t *testing.T) {
+	t.Run("WithLeveledLogger sets client field", func(t *testing.T) {
+		ml := &mockLeveledLogger{}
+		u, _ := url.Parse("http://localhost:9200")
+		tp, err := NewClient(
+			WithURLs(u),
+			WithLeveledLogger(ml),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if tp.leveledLogger != ml {
+			t.Errorf("Expected leveledLogger to be set")
+		}
+	})
+
+	t.Run("WithDebugLogger sets default slog logger", func(t *testing.T) {
+		u, _ := url.Parse("http://localhost:9200")
+		tp, err := NewClient(
+			WithURLs(u),
+			WithDebugLogger(),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if tp.leveledLogger == nil {
+			t.Fatal("Expected leveledLogger to be non-nil with WithDebugLogger")
+		}
+		if _, ok := tp.leveledLogger.(*SlogLogger); !ok {
+			t.Errorf("Expected *SlogLogger, got %T", tp.leveledLogger)
+		}
+	})
+
+	t.Run("WithLeveledLogger takes precedence over WithDebugLogger", func(t *testing.T) {
+		ml := &mockLeveledLogger{}
+		u, _ := url.Parse("http://localhost:9200")
+		tp, err := NewClient(
+			WithURLs(u),
+			WithDebugLogger(),
+			WithLeveledLogger(ml),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if tp.leveledLogger != ml {
+			t.Errorf("Expected custom LeveledLogger to take precedence")
+		}
+	})
+
+	t.Run("Nil logger does not panic on connection failure", func(t *testing.T) {
+		u, _ := url.Parse("http://localhost:9200")
+		tp, err := NewClient(
+			WithURLs(u, u),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if tp.leveledLogger != nil {
+			t.Fatal("Expected nil leveledLogger")
+		}
+		conn := &Connection{URL: u}
+		pool := tp.pool
+		// Should not panic with nil logger
+		_ = pool.OnFailure(conn)
+	})
+
+	t.Run("Logger propagated to pool", func(t *testing.T) {
+		ml := &mockLeveledLogger{}
+		u1, _ := url.Parse("http://localhost:9200")
+		u2, _ := url.Parse("http://localhost:9201")
+		tp, err := NewClient(
+			WithURLs(u1, u2),
+			WithLeveledLogger(ml),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		conn, _ := tp.pool.Next()
+		_ = tp.pool.OnFailure(conn)
+
+		if len(ml.calls) == 0 {
+			t.Error("Expected log calls from pool OnFailure, got none")
+		}
+		found := false
+		for _, call := range ml.calls {
+			if call.level == "debug" && strings.Contains(call.msg, "removing") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected 'removing connection' debug log, got: %+v", ml.calls)
+		}
+	})
+
+	t.Run("Auto-wires round-trip logging when WithLogger not set", func(t *testing.T) {
+		ml := &mockLeveledLogger{}
+		u, _ := url.Parse("http://localhost:9200")
+		tp, err := NewClient(
+			WithURLs(u),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						Status:     "200 OK",
+						StatusCode: 200,
+						Header:     http.Header{},
+						Body:       io.NopCloser(strings.NewReader("")),
+					}, nil
+				},
+			}),
+			WithLeveledLogger(ml),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		req, _ := http.NewRequest("GET", "/", nil)
+		_, err = tp.Perform(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		found := false
+		for _, call := range ml.calls {
+			if call.level == "info" && call.msg == "request" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected 'request' info log from round-trip adapter, got: %+v", ml.calls)
+		}
+	})
+
+	t.Run("WithLogger takes precedence over auto-wired adapter", func(t *testing.T) {
+		ml := &mockLeveledLogger{}
+		var loggerUsed bool
+		customLogger := &CustomLogger{Output: io.Discard}
+		_ = customLogger
+
+		u, _ := url.Parse("http://localhost:9200")
+		tp, err := NewClient(
+			WithURLs(u),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						Status:     "200 OK",
+						StatusCode: 200,
+						Header:     http.Header{},
+						Body:       io.NopCloser(strings.NewReader("")),
+					}, nil
+				},
+			}),
+			WithLeveledLogger(ml),
+			WithLogger(&trackingLogger{called: &loggerUsed}),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		req, _ := http.NewRequest("GET", "/", nil)
+		_, err = tp.Perform(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		if !loggerUsed {
+			t.Error("Expected explicit WithLogger to be used for round-trip logging")
+		}
+		for _, call := range ml.calls {
+			if call.level == "info" && call.msg == "request" {
+				t.Error("Expected leveled logger NOT to receive round-trip logs when WithLogger is set")
+			}
+		}
+	})
+
+	t.Run("Round-trip adapter logs errors at Error level", func(t *testing.T) {
+		ml := &mockLeveledLogger{}
+		u, _ := url.Parse("http://localhost:9200")
+		tp, err := NewClient(
+			WithURLs(u),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return nil, fmt.Errorf("connection refused")
+				},
+			}),
+			WithLeveledLogger(ml),
+			WithDisableRetry(),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		req, _ := http.NewRequest("GET", "/", nil)
+		_, _ = tp.Perform(req)
+
+		found := false
+		for _, call := range ml.calls {
+			if call.level == "error" && call.msg == "request failed" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected 'request failed' error log, got: %+v", ml.calls)
+		}
+	})
+
+	t.Run("Body logging opt-in", func(t *testing.T) {
+		ml := &mockLeveledLogger{}
+		u, _ := url.Parse("http://localhost:9200")
+		tp, err := NewClient(
+			WithURLs(u),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						Status:     "200 OK",
+						StatusCode: 200,
+						Header:     http.Header{},
+						Body:       io.NopCloser(strings.NewReader(`{"result":"ok"}`)),
+					}, nil
+				},
+			}),
+			WithLeveledLogger(ml),
+			WithLeveledLoggerBodyLogging(true, true),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		req, _ := http.NewRequest("POST", "/test", nil)
+		req.Body = io.NopCloser(strings.NewReader(`{"query":"match_all"}`))
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader(`{"query":"match_all"}`)), nil
+		}
+		_, err = tp.Perform(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		found := false
+		for _, call := range ml.calls {
+			if call.level == "info" && call.msg == "request" {
+				for i := 0; i < len(call.keysAndValues)-1; i += 2 {
+					if call.keysAndValues[i] == "response.body" {
+						found = true
+					}
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Expected response.body in log output, got: %+v", ml.calls)
+		}
+	})
+}
+
+type trackingLogger struct {
+	called *bool
+}
+
+func (l *trackingLogger) LogRoundTrip(*http.Request, *http.Response, error, time.Time, time.Duration) error {
+	*l.called = true
+	return nil
+}
+func (l *trackingLogger) RequestBodyEnabled() bool  { return false }
+func (l *trackingLogger) ResponseBodyEnabled() bool { return false }

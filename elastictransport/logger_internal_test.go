@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -498,4 +499,84 @@ func (r *ErrorReader) Read(p []byte) (int, error) {
 	lr := io.LimitReader(r.r, 3)
 	c, _ := lr.Read(p)
 	return c, errors.New("MOCK ERROR")
+}
+
+func TestSlogLogger(t *testing.T) {
+	var buf strings.Builder
+	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	logger := &SlogLogger{Logger: slog.New(handler)}
+
+	tests := []struct {
+		name   string
+		call   func()
+		level  string
+		msg    string
+		hasKey string
+	}{
+		{
+			name:  "Debug",
+			call:  func() { logger.Debug("test debug", "key", "val") },
+			level: "DEBUG",
+			msg:   "test debug",
+		},
+		{
+			name:  "Info",
+			call:  func() { logger.Info("test info", "key", "val") },
+			level: "INFO",
+			msg:   "test info",
+		},
+		{
+			name:  "Warn",
+			call:  func() { logger.Warn("test warn", "key", "val") },
+			level: "WARN",
+			msg:   "test warn",
+		},
+		{
+			name:   "Error",
+			call:   func() { logger.Error("test error", "error", errors.New("boom"), "extra", 42) },
+			level:  "ERROR",
+			msg:    "test error",
+			hasKey: "error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf.Reset()
+			tt.call()
+			out := buf.String()
+			if !strings.Contains(out, "level="+tt.level) {
+				t.Errorf("expected level=%s in output: %s", tt.level, out)
+			}
+			if !strings.Contains(out, "msg=\""+tt.msg+"\"") && !strings.Contains(out, "msg="+tt.msg) {
+				t.Errorf("expected msg=%q in output: %s", tt.msg, out)
+			}
+			if tt.hasKey != "" && !strings.Contains(out, tt.hasKey) {
+				t.Errorf("expected key %q in output: %s", tt.hasKey, out)
+			}
+		})
+	}
+}
+
+type mockLeveledLogger struct {
+	calls []mockLogCall
+}
+
+type mockLogCall struct {
+	level         string
+	msg           string
+	keysAndValues []any
+}
+
+func (m *mockLeveledLogger) Debug(msg string, keysAndValues ...any) {
+	m.calls = append(m.calls, mockLogCall{"debug", msg, keysAndValues})
+}
+func (m *mockLeveledLogger) Info(msg string, keysAndValues ...any) {
+	m.calls = append(m.calls, mockLogCall{"info", msg, keysAndValues})
+}
+func (m *mockLeveledLogger) Warn(msg string, keysAndValues ...any) {
+	m.calls = append(m.calls, mockLogCall{"warn", msg, keysAndValues})
+}
+func (m *mockLeveledLogger) Error(msg string, keysAndValues ...any) {
+	m.calls = append(m.calls, mockLogCall{"error", msg, keysAndValues})
 }
