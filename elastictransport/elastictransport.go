@@ -371,6 +371,13 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		err error
 	)
 
+	// Inject the leveled logger into the request context so interceptors
+	// can retrieve it via LoggerFromContext, unless the caller already
+	// attached one (per-request override).
+	if c.leveledLogger != nil && LoggerFromContext(req.Context()) == nil {
+		req = req.WithContext(ContextWithLogger(req.Context(), c.leveledLogger))
+	}
+
 	// Record metrics, when enabled
 	if c.metrics != nil {
 		c.metrics.requests.Add(1)
@@ -545,6 +552,12 @@ func (c *Client) URLs() []*url.URL {
 
 func (c *Client) InstrumentationEnabled() Instrumentation {
 	return c.instrumentation
+}
+
+// LeveledLoggerEnabled returns the configured [LeveledLogger], or nil if
+// leveled logging is not enabled.
+func (c *Client) LeveledLoggerEnabled() LeveledLogger {
+	return c.leveledLogger
 }
 
 func (c *Client) snapshotPool() ConnectionPool {

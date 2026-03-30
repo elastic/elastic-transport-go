@@ -2251,6 +2251,143 @@ func TestLeveledLogger(t *testing.T) {
 			t.Errorf("Expected response.body in log output, got: %+v", ml.calls)
 		}
 	})
+
+	t.Run("LeveledLoggerEnabled accessor", func(t *testing.T) {
+		ml := &mockLeveledLogger{}
+		u, _ := url.Parse("http://localhost:9200")
+		tp, err := NewClient(WithURLs(u), WithLeveledLogger(ml))
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if tp.LeveledLoggerEnabled() != ml {
+			t.Error("Expected LeveledLoggerEnabled to return the configured logger")
+		}
+
+		tp2, err := NewClient(WithURLs(u))
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if tp2.LeveledLoggerEnabled() != nil {
+			t.Error("Expected LeveledLoggerEnabled to return nil when not configured")
+		}
+	})
+
+	t.Run("Logger injected into request context for interceptors", func(t *testing.T) {
+		ml := &mockLeveledLogger{}
+		u, _ := url.Parse("http://localhost:9200")
+		var ctxLogger LeveledLogger
+
+		tp, err := NewClient(
+			WithURLs(u),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						Status:     "200 OK",
+						StatusCode: 200,
+						Header:     http.Header{},
+						Body:       io.NopCloser(strings.NewReader("")),
+					}, nil
+				},
+			}),
+			WithLeveledLogger(ml),
+			WithInterceptors(func(next RoundTripFunc) RoundTripFunc {
+				return func(req *http.Request) (*http.Response, error) {
+					ctxLogger = LoggerFromContext(req.Context())
+					return next(req)
+				}
+			}),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		req, _ := http.NewRequest("GET", "/", nil)
+		_, err = tp.Perform(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if ctxLogger != ml {
+			t.Error("Expected interceptor to receive the LeveledLogger from context")
+		}
+	})
+
+	t.Run("Per-request context logger overrides client logger", func(t *testing.T) {
+		clientLogger := &mockLeveledLogger{}
+		requestLogger := &mockLeveledLogger{}
+		u, _ := url.Parse("http://localhost:9200")
+		var ctxLogger LeveledLogger
+
+		tp, err := NewClient(
+			WithURLs(u),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						Status:     "200 OK",
+						StatusCode: 200,
+						Header:     http.Header{},
+						Body:       io.NopCloser(strings.NewReader("")),
+					}, nil
+				},
+			}),
+			WithLeveledLogger(clientLogger),
+			WithInterceptors(func(next RoundTripFunc) RoundTripFunc {
+				return func(req *http.Request) (*http.Response, error) {
+					ctxLogger = LoggerFromContext(req.Context())
+					return next(req)
+				}
+			}),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		req, _ := http.NewRequest("GET", "/", nil)
+		req = req.WithContext(ContextWithLogger(req.Context(), requestLogger))
+		_, err = tp.Perform(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if ctxLogger != requestLogger {
+			t.Error("Expected per-request logger to override client logger in context")
+		}
+	})
+
+	t.Run("LoggerFromContext returns nil when no logger set", func(t *testing.T) {
+		u, _ := url.Parse("http://localhost:9200")
+		var ctxLogger LeveledLogger = &mockLeveledLogger{} // non-nil sentinel
+
+		tp, err := NewClient(
+			WithURLs(u),
+			WithTransport(&mockTransp{
+				RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+					return &http.Response{
+						Status:     "200 OK",
+						StatusCode: 200,
+						Header:     http.Header{},
+						Body:       io.NopCloser(strings.NewReader("")),
+					}, nil
+				},
+			}),
+			WithInterceptors(func(next RoundTripFunc) RoundTripFunc {
+				return func(req *http.Request) (*http.Response, error) {
+					ctxLogger = LoggerFromContext(req.Context())
+					return next(req)
+				}
+			}),
+		)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+
+		req, _ := http.NewRequest("GET", "/", nil)
+		_, err = tp.Perform(req)
+		if err != nil {
+			t.Fatalf("Unexpected error: %s", err)
+		}
+		if ctxLogger != nil {
+			t.Error("Expected LoggerFromContext to return nil when no logger configured")
+		}
+	})
 }
 
 type trackingLogger struct {

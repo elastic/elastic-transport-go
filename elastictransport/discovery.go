@@ -140,6 +140,10 @@ func (c *Client) DiscoverNodesContext(ctx context.Context) error {
 		}
 	}
 
+	if ls, ok := c.pool.(loggerSettable); ok {
+		ls.setLogger(c.leveledLogger)
+	}
+
 	return nil
 }
 

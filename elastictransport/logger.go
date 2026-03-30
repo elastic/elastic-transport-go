@@ -20,6 +20,7 @@ package elastictransport
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,6 +31,36 @@ import (
 	"strings"
 	"time"
 )
+
+type loggerContextKey struct{}
+
+// ContextWithLogger returns a copy of ctx with the given [LeveledLogger]
+// attached. Use this to override the transport's logger on a per-request basis,
+// or to make the logger available to [InterceptorFunc] implementations via
+// [LoggerFromContext].
+func ContextWithLogger(ctx context.Context, l LeveledLogger) context.Context {
+	return context.WithValue(ctx, loggerContextKey{}, l)
+}
+
+// LoggerFromContext returns the [LeveledLogger] attached to ctx by
+// [ContextWithLogger], or nil if none is set.
+//
+// This is primarily useful inside [InterceptorFunc] implementations:
+//
+//	interceptor := func(next elastictransport.RoundTripFunc) elastictransport.RoundTripFunc {
+//	    return func(req *http.Request) (*http.Response, error) {
+//	        if logger := elastictransport.LoggerFromContext(req.Context()); logger != nil {
+//	            logger.Debug("interceptor called", "method", req.Method, "url", req.URL.String())
+//	        }
+//	        return next(req)
+//	    }
+//	}
+func LoggerFromContext(ctx context.Context) LeveledLogger {
+	if l, ok := ctx.Value(loggerContextKey{}).(LeveledLogger); ok {
+		return l
+	}
+	return nil
+}
 
 // Logger defines an interface for logging request and response.
 //
