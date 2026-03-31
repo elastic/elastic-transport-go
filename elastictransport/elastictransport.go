@@ -28,10 +28,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -102,8 +102,11 @@ type Config struct {
 	// It should be enabled with CompressRequestBody.
 	PoolCompressor bool
 
-	EnableMetrics     bool
+	EnableMetrics bool
+	// Deprecated: Use LeveledLogger and [WithLeveledLogger] instead.
 	EnableDebugLogger bool
+
+	LeveledLogger LeveledLogger
 
 	Instrumentation Instrumentation
 
@@ -111,7 +114,8 @@ type Config struct {
 	DiscoverNodeTimeout   *time.Duration
 
 	Transport http.RoundTripper
-	Logger    Logger
+	// Deprecated: Use LeveledLogger and [WithLeveledLogger] instead.
+	Logger Logger
 	Selector  Selector
 
 	// ConnectionPoolFunc creates a custom connection pool.
@@ -161,9 +165,10 @@ type Client struct {
 
 	metrics *metrics
 
-	transport http.RoundTripper
-	logger    Logger
-	selector  Selector
+	transport      http.RoundTripper
+	logger         Logger
+	leveledLogger  LeveledLogger
+	selector       Selector
 	pool      ConnectionPool
 	poolFunc  func([]*Connection, Selector) ConnectionPool
 
@@ -305,8 +310,14 @@ func New(cfg Config) (*Client, error) {
 		client.pool, _ = NewConnectionPool(conns, client.selector)
 	}
 
-	if cfg.EnableDebugLogger {
-		debugLogger = &debuggingLogger{Output: os.Stdout}
+	if cfg.LeveledLogger != nil {
+		client.leveledLogger = cfg.LeveledLogger
+	} else if cfg.EnableDebugLogger {
+		client.leveledLogger = &SlogLogger{Logger: slog.Default()}
+	}
+
+	if ls, ok := client.pool.(loggerSettable); ok {
+		ls.setLogger(client.leveledLogger)
 	}
 
 	if cfg.EnableMetrics {
@@ -347,6 +358,10 @@ func (c *Client) Perform(req *http.Request) (*http.Response, error) {
 		res *http.Response
 		err error
 	)
+
+	if c.leveledLogger != nil && LoggerFromContext(req.Context()) == nil {
+		req = req.WithContext(ContextWithLogger(req.Context(), c.leveledLogger))
+	}
 
 	// Record metrics, when enabled
 	if c.metrics != nil {
@@ -522,6 +537,12 @@ func (c *Client) URLs() []*url.URL {
 
 func (c *Client) InstrumentationEnabled() Instrumentation {
 	return c.instrumentation
+}
+
+// LeveledLoggerEnabled returns the configured [LeveledLogger], or nil if
+// leveled logging is not enabled.
+func (c *Client) LeveledLoggerEnabled() LeveledLogger {
+	return c.leveledLogger
 }
 
 func (c *Client) snapshotPool() ConnectionPool {

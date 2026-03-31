@@ -90,11 +90,48 @@ for concurrent use.
 
 # Logging
 
-The package defines the [Logger] interface for logging information about request
-and response. It comes with several bundled loggers for logging in text and
-JSON.
+Use [WithLeveledLogger] to supply a structured, leveled logger for
+transport-internal events (connection management, node discovery). The
+[LeveledLogger] interface uses the same (msg, keysAndValues...) convention
+as [log/slog]:
 
-Use [WithDebugLogger] to enable the debugging logger for connection management.
+	tp, err := elastictransport.NewClient(
+	    elastictransport.WithURLs(u),
+	    elastictransport.WithLeveledLogger(&elastictransport.SlogLogger{
+	        Logger: slog.New(slog.NewJSONHandler(os.Stderr, nil)),
+	    }),
+	)
+
+Add [LoggingInterceptor] to also log request/response round-trips through
+the same logger. Successful requests are logged at Info level; errors at
+Error level:
+
+	tp, err := elastictransport.NewClient(
+	    elastictransport.WithURLs(u),
+	    elastictransport.WithLeveledLogger(&elastictransport.SlogLogger{
+	        Logger: slog.Default(),
+	    }),
+	    elastictransport.WithInterceptors(
+	        elastictransport.LoggingInterceptor(false, false),
+	    ),
+	)
+
+The logger is injected into the request context during [Client.Perform],
+making it available to custom [InterceptorFunc] implementations via
+[LoggerFromContext]. Callers can override the logger per-request using
+[ContextWithLogger].
+
+The [sloghandler] sub-package provides drop-in [log/slog.Handler]
+replacements for each deprecated logger: [sloghandler.NewTextHandler],
+[sloghandler.NewColorHandler], [sloghandler.NewCurlHandler], and
+[sloghandler.NewJSONECSHandler].
+
+[OTelContextAttrs] can be used as [SlogLogger.ContextAttrs] to
+automatically include OpenTelemetry trace_id and span_id in every log entry.
+
+The older [Logger] interface, [WithLogger], [WithDebugLogger], and the bundled
+loggers ([TextLogger], [ColorLogger], [CurlLogger], [JSONLogger]) are
+deprecated but remain fully functional.
 
 # Metrics
 
