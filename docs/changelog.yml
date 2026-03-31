@@ -26,7 +26,7 @@ products:
   available: []
   # Default products when --products not specified
   default:
-    - product: elasticsearch-client-go
+    - product: transport-go
       lifecycle: ga
 
 # Extraction configuration
