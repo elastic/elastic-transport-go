@@ -153,6 +153,33 @@ ContextAttrs: func(ctx context.Context) []any {
 },
 ```
 
+## Custom Pools
+
+The `LeveledLogger` set via `WithLeveledLogger` drives two things:
+
+- **Request/response logging** via `LoggingInterceptor`, which works with any pool type.
+- **Pool-internal events** (node resurrection, health checks) in the built-in `statusConnectionPool`.
+
+Custom pools provided via `WithConnectionPoolFunc` do not receive the transport's logger. If your custom pool needs logging, accept a logger in its constructor:
+
+```go
+type MyPool struct {
+    logger *slog.Logger
+    // ...
+}
+
+tp, _ := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithLeveledLogger(&elastictransport.SlogLogger{Logger: logger}),
+    elastictransport.WithConnectionPoolFunc(func(conns []*elastictransport.Connection, sel elastictransport.Selector) elastictransport.ConnectionPool {
+        return &MyPool{logger: logger, /* ... */}
+    }),
+    elastictransport.WithInterceptors(
+        elastictransport.LoggingInterceptor(false, false),
+    ),
+)
+```
+
 ## Writing Your Own Adapter
 
 Implement the four methods of `elastictransport.LeveledLogger`:

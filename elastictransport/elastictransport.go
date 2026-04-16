@@ -122,6 +122,8 @@ type Config struct {
 	// Pools are synchronized by default; implement
 	// ConcurrentSafeConnectionPool to opt out when your pool is already safe for
 	// concurrent use.
+	// Custom pools do not receive the transport's LeveledLogger;
+	// pool-internal logging must be handled by the pool itself.
 	// During discovery, if the current pool implements UpdatableConnectionPool,
 	// discovery prefers in-place Update() and this function is only used when
 	// Update() is not available.

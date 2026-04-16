@@ -221,6 +221,9 @@ type statusConnectionPool struct {
 	closeDone          uint32
 }
 
+// loggerSettable is intentionally unexported: only built-in pools (and their
+// synchronized wrappers) receive the transport's LeveledLogger. Custom pools
+// should accept a logger via their own constructor.
 type loggerSettable interface {
 	setLogger(LeveledLogger)
 }

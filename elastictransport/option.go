@@ -211,6 +211,10 @@ func WithSelector(s Selector) Option {
 // ConcurrentSafeConnectionPool to opt out when your pool is already safe for
 // concurrent use.
 //
+// Custom pools do not receive the transport's LeveledLogger. Request/response
+// logging via LoggingInterceptor works regardless of pool type, but
+// pool-internal logging (e.g. node health) must be handled by the pool itself.
+//
 // During discovery, if the current pool implements UpdatableConnectionPool,
 // discovery prefers in-place Update() and this function is only called when
 // Update() is not available.

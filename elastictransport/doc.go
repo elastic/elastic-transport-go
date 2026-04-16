@@ -129,6 +129,20 @@ replacements for each deprecated logger: [sloghandler.NewTextHandler],
 [OTelContextAttrs] can be used as [SlogLogger.ContextAttrs] to
 automatically include OpenTelemetry trace_id and span_id in every log entry.
 
+# Custom Pools and Logging
+
+The [LeveledLogger] configured via [WithLeveledLogger] is used in two places:
+
+  - Request/response logging via [LoggingInterceptor], which works with any
+    pool type (built-in or custom).
+  - Pool-internal events (node resurrection, health checks) in the built-in
+    [statusConnectionPool].
+
+Custom pools provided via [WithConnectionPoolFunc] do not receive the
+transport's [LeveledLogger]. Pool-internal logging is a feature of the
+built-in pools. If your custom pool needs logging, accept a logger in its
+constructor.
+
 The older [Logger] interface, [WithLogger], [WithDebugLogger], and the bundled
 loggers ([TextLogger], [ColorLogger], [CurlLogger], [JSONLogger]) are
 deprecated but remain fully functional.
