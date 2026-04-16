@@ -64,6 +64,7 @@ Everything is in the `elastictransport` package. There is no cmd/, internal/, or
 - The `Config` struct is deprecated but kept until the next major version. New features must add both a `With*` option constructor and the corresponding `Config` field.
 - Version is in `elastictransport/version/version.go`, managed by release-please.
 - The `v8` module path is not tied to Elasticsearch 8 specifically — it supports Elasticsearch 8+ and is also used by `go-elasticsearch` v9.
+- When a feature interacts with pluggable interfaces (connection pools, selectors, interceptors), document edge cases and limitations for custom implementations at the user-facing API surface: the `With*` option godoc, the corresponding `Config` field comment, and `doc.go`. Internal code comments alone are not enough, as users read godoc and option constructors, not internal types.
 
 ## Contributing
 
