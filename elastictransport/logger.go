@@ -232,6 +232,7 @@ func LoggingInterceptor(enableRequestBody, enableResponseBody bool) InterceptorF
 					body, _ := req.GetBody()
 					var buf bytes.Buffer
 					_, _ = io.Copy(&buf, io.LimitReader(body, maxLogBodyBytes))
+					_ = body.Close()
 					kv = append(kv, LogKeyRequestBody, buf.String())
 				}
 			}

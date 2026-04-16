@@ -45,6 +45,8 @@ var (
 	_ ConnectionPool          = (*synchronizedUpdatablePool)(nil)
 	_ CloseableConnectionPool = (*synchronizedUpdatablePool)(nil)
 	_ UpdatableConnectionPool = (*synchronizedUpdatablePool)(nil)
+	_ loggerSettable          = (*synchronizedPool)(nil)
+	_ loggerSettable          = (*synchronizedUpdatablePool)(nil)
 	_ Selector                = (*roundRobinSelector)(nil)
 )
 
