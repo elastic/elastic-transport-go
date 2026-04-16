@@ -21,10 +21,12 @@
 package elastictransport
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -498,4 +500,132 @@ func (r *ErrorReader) Read(p []byte) (int, error) {
 	lr := io.LimitReader(r.r, 3)
 	c, _ := lr.Read(p)
 	return c, errors.New("MOCK ERROR")
+}
+
+func TestSlogLogger(t *testing.T) {
+	var buf strings.Builder
+	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	logger := &SlogLogger{Logger: slog.New(handler)}
+
+	tests := []struct {
+		name   string
+		call   func()
+		level  string
+		msg    string
+		hasKey string
+	}{
+		{
+			name:  "Debug",
+			call:  func() { logger.Debug(context.Background(), "test debug", "key", "val") },
+			level: "DEBUG",
+			msg:   "test debug",
+		},
+		{
+			name:  "Info",
+			call:  func() { logger.Info(context.Background(), "test info", "key", "val") },
+			level: "INFO",
+			msg:   "test info",
+		},
+		{
+			name:  "Warn",
+			call:  func() { logger.Warn(context.Background(), "test warn", "key", "val") },
+			level: "WARN",
+			msg:   "test warn",
+		},
+		{
+			name:   "Error",
+			call:   func() { logger.Error(context.Background(), "test error", "error", errors.New("boom"), "extra", 42) },
+			level:  "ERROR",
+			msg:    "test error",
+			hasKey: "error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf.Reset()
+			tt.call()
+			out := buf.String()
+			if !strings.Contains(out, "level="+tt.level) {
+				t.Errorf("expected level=%s in output: %s", tt.level, out)
+			}
+			if !strings.Contains(out, "msg=\""+tt.msg+"\"") && !strings.Contains(out, "msg="+tt.msg) {
+				t.Errorf("expected msg=%q in output: %s", tt.msg, out)
+			}
+			if tt.hasKey != "" && !strings.Contains(out, tt.hasKey) {
+				t.Errorf("expected key %q in output: %s", tt.hasKey, out)
+			}
+		})
+	}
+}
+
+func TestSlogLoggerContextAttrs(t *testing.T) {
+	type ctxKey struct{}
+
+	var buf strings.Builder
+	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})
+	logger := &SlogLogger{
+		Logger: slog.New(handler),
+		ContextAttrs: func(ctx context.Context) []any {
+			if v, ok := ctx.Value(ctxKey{}).(string); ok {
+				return []any{"trace_id", v}
+			}
+			return nil
+		},
+	}
+
+	t.Run("Prepends context attrs when present", func(t *testing.T) {
+		buf.Reset()
+		ctx := context.WithValue(context.Background(), ctxKey{}, "abc123")
+		logger.Info(ctx, "test msg", "key", "val")
+		out := buf.String()
+		if !strings.Contains(out, "trace_id=abc123") {
+			t.Errorf("expected trace_id=abc123 in output: %s", out)
+		}
+		if !strings.Contains(out, "key=val") {
+			t.Errorf("expected key=val in output: %s", out)
+		}
+	})
+
+	t.Run("No extra attrs when context has no value", func(t *testing.T) {
+		buf.Reset()
+		logger.Info(context.Background(), "test msg", "key", "val")
+		out := buf.String()
+		if strings.Contains(out, "trace_id") {
+			t.Errorf("unexpected trace_id in output: %s", out)
+		}
+	})
+
+	t.Run("Works without ContextAttrs set", func(t *testing.T) {
+		buf.Reset()
+		plain := &SlogLogger{Logger: slog.New(handler)}
+		plain.Info(context.Background(), "test msg", "key", "val")
+		out := buf.String()
+		if !strings.Contains(out, "key=val") {
+			t.Errorf("expected key=val in output: %s", out)
+		}
+	})
+}
+
+type mockLeveledLogger struct {
+	calls []mockLogCall
+}
+
+type mockLogCall struct {
+	level         string
+	msg           string
+	keysAndValues []any
+}
+
+func (m *mockLeveledLogger) Debug(_ context.Context, msg string, keysAndValues ...any) {
+	m.calls = append(m.calls, mockLogCall{"debug", msg, keysAndValues})
+}
+func (m *mockLeveledLogger) Info(_ context.Context, msg string, keysAndValues ...any) {
+	m.calls = append(m.calls, mockLogCall{"info", msg, keysAndValues})
+}
+func (m *mockLeveledLogger) Warn(_ context.Context, msg string, keysAndValues ...any) {
+	m.calls = append(m.calls, mockLogCall{"warn", msg, keysAndValues})
+}
+func (m *mockLeveledLogger) Error(_ context.Context, msg string, keysAndValues ...any) {
+	m.calls = append(m.calls, mockLogCall{"error", msg, keysAndValues})
 }
