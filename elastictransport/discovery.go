@@ -171,10 +171,16 @@ func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
 		if err == nil {
 			return nodes, nil
 		}
-		if onFailErr := pool.OnFailure(conn); onFailErr != nil && c.leveledLogger != nil {
-			c.leveledLogger.Warn(ctx, "discovery: pool.OnFailure error", "error", onFailErr)
-		}
 		primaryErr = fmt.Errorf("pool conn %s: %w", conn.URL.Redacted(), err)
+		// Don't mark the node as failed when the request was canceled by our own
+		// context (e.g. client Close, caller timeout) — that's a client-side
+		// signal, not a node fault, and scheduling a resurrect during Close
+		// races with pool shutdown.
+		if ctx.Err() == nil {
+			if onFailErr := pool.OnFailure(conn); onFailErr != nil && c.leveledLogger != nil {
+				c.leveledLogger.Warn(ctx, "discovery: pool.OnFailure error", "error", onFailErr)
+			}
+		}
 	}
 
 	if err := ctx.Err(); err != nil {
