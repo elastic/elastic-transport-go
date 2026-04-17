@@ -152,10 +152,7 @@ func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
 		return nil, errors.New("no URLs configured")
 	}
 
-	var (
-		out    []nodeInfo
-		scheme = c.urls[0].Scheme
-	)
+	scheme := c.urls[0].Scheme
 
 	var cancel context.CancelFunc
 	if c.discoverNodeTimeout != nil {
@@ -163,49 +160,68 @@ func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
 		defer cancel()
 	}
 
+	pool := c.snapshotPool()
+	conn, poolErr := pool.Next()
+	if poolErr == nil {
+		return c.fetchNodesInfo(ctx, conn.URL, scheme)
+	}
+
+	if c.leveledLogger != nil {
+		c.leveledLogger.Debug(ctx, "discovery: pool exhausted, falling back to seed URLs", "error", poolErr)
+	}
+
+	errs := []error{fmt.Errorf("pool: %w", poolErr)}
+	for _, u := range c.urls {
+		nodes, err := c.fetchNodesInfo(ctx, u, scheme)
+		if err == nil {
+			if c.leveledLogger != nil {
+				c.leveledLogger.Debug(ctx, "discovery: seed URL fallback succeeded", "url", u.Redacted())
+			}
+			return nodes, nil
+		}
+		errs = append(errs, fmt.Errorf("seed %s: %w", u.Redacted(), err))
+	}
+
+	return nil, fmt.Errorf("discovery: all seed URLs failed: %w", errors.Join(errs...))
+}
+
+func (c *Client) fetchNodesInfo(ctx context.Context, u *url.URL, scheme string) ([]nodeInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", "/_nodes/http", nil)
 	if err != nil {
-		return out, err
+		return nil, err
 	}
 
-	pool := c.snapshotPool()
-	conn, err := pool.Next()
-	// TODO(karmi): If no connection is returned, fallback to original URLs
-	if err != nil {
-		return out, err
-	}
-
-	c.setReqURL(conn.URL, req)
-	c.setReqAuth(conn.URL, req)
+	c.setReqURL(u, req)
+	c.setReqAuth(u, req)
 	c.setReqUserAgent(req)
 	c.setReqGlobalHeader(req)
 
 	res, err := c.roundTrip(req)
 	if err != nil {
-		return out, err
+		return nil, err
 	}
 	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil && c.leveledLogger != nil {
+		if err := Body.Close(); err != nil && c.leveledLogger != nil {
 			c.leveledLogger.Warn(ctx, "error closing response body", "error", err)
 		}
 	}(res.Body)
 
 	if res.StatusCode > 200 {
 		body, _ := io.ReadAll(res.Body)
-		return out, fmt.Errorf("server error: %s: %s", res.Status, body)
+		return nil, fmt.Errorf("server error: %s: %s", res.Status, body)
 	}
 
 	var env map[string]json.RawMessage
 	if err := json.NewDecoder(res.Body).Decode(&env); err != nil {
-		return out, err
+		return nil, err
 	}
 
 	var nodes map[string]nodeInfo
 	if err := json.Unmarshal(env["nodes"], &nodes); err != nil {
-		return out, err
+		return nil, err
 	}
 
+	out := make([]nodeInfo, 0, len(nodes))
 	for id, node := range nodes {
 		node.ID = id
 		node.URL = c.getNodeURL(node, scheme)

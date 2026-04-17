@@ -33,6 +33,8 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -723,6 +725,109 @@ func TestDiscoverNodesContextReturnsErrClosedWhenClosedOnEmptyDiscoveredSet(t *t
 	err := tp.DiscoverNodesContext(context.Background())
 	if !errors.Is(err, ErrClosed) {
 		t.Fatalf("DiscoverNodesContext() error mismatch, want=%v, got=%v", ErrClosed, err)
+	}
+}
+
+// exhaustedPool is a ConnectionPool that always returns an error from Next,
+// simulating a pool whose connections are all marked dead or otherwise
+// unavailable.
+type exhaustedPool struct{}
+
+func (exhaustedPool) Next() (*Connection, error) {
+	return nil, errors.New("no connection available")
+}
+func (exhaustedPool) OnSuccess(*Connection) error { return nil }
+func (exhaustedPool) OnFailure(*Connection) error { return nil }
+func (exhaustedPool) URLs() []*url.URL            { return nil }
+
+func TestDiscoverNodesContextFallsBackToSeedURLsWhenPoolExhausted(t *testing.T) {
+	payload := []byte(`{
+		"nodes": {
+			"es1": {"roles": ["data"], "http": {"publish_address": "es1:9200"}},
+			"es2": {"roles": ["data"], "http": {"publish_address": "es2:9200"}}
+		}
+	}`)
+
+	deadSeed, _ := url.Parse("http://deadseed:9200")
+	liveSeed, _ := url.Parse("http://liveseed:9200")
+
+	var (
+		mu      sync.Mutex
+		visited []string
+	)
+
+	tp, _ := New(Config{
+		URLs: []*url.URL{deadSeed, liveSeed},
+		Transport: &mockTransp{
+			RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+				mu.Lock()
+				visited = append(visited, req.URL.Host)
+				mu.Unlock()
+
+				if req.URL.Host == deadSeed.Host {
+					return nil, &mockNetError{error: errors.New("connection refused")}
+				}
+				return &http.Response{
+					Status:        "200 OK",
+					StatusCode:    200,
+					ContentLength: int64(len(payload)),
+					Header:        map[string][]string{"Content-Type": {"application/json"}},
+					Body:          io.NopCloser(bytes.NewReader(payload)),
+				}, nil
+			},
+		},
+	})
+
+	tp.poolMu.Lock()
+	tp.pool = exhaustedPool{}
+	tp.poolMu.Unlock()
+
+	if err := tp.DiscoverNodesContext(context.Background()); err != nil {
+		t.Fatalf("DiscoverNodesContext() unexpected error: %s", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(visited) < 2 || visited[0] != deadSeed.Host || visited[1] != liveSeed.Host {
+		t.Fatalf("Expected seed URLs tried in order [%s, %s], got %v", deadSeed.Host, liveSeed.Host, visited)
+	}
+
+	pool, ok := tp.pool.(*statusConnectionPool)
+	if !ok {
+		t.Fatalf("Unexpected pool type after discovery: %T", tp.pool)
+	}
+	if len(pool.live) != 2 {
+		t.Fatalf("Unexpected number of live connections, want=2, got=%d", len(pool.live))
+	}
+}
+
+func TestDiscoverNodesContextReturnsJoinedErrorWhenPoolAndSeedsFail(t *testing.T) {
+	u1, _ := url.Parse("http://seed1:9200")
+	u2, _ := url.Parse("http://seed2:9200")
+
+	tp, _ := New(Config{
+		URLs: []*url.URL{u1, u2},
+		Transport: &mockTransp{
+			RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+				return nil, &mockNetError{error: fmt.Errorf("dial %s: refused", req.URL.Host)}
+			},
+		},
+	})
+
+	tp.poolMu.Lock()
+	tp.pool = exhaustedPool{}
+	tp.poolMu.Unlock()
+
+	err := tp.DiscoverNodesContext(context.Background())
+	if err == nil {
+		t.Fatalf("DiscoverNodesContext() expected error, got nil")
+	}
+
+	msg := err.Error()
+	for _, want := range []string{"discovery", "pool", "no connection available", "seed1:9200", "seed2:9200"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("Expected error to contain %q, got: %s", want, msg)
+		}
 	}
 }
 
