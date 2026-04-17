@@ -725,3 +725,86 @@ func TestDiscoverNodesContextReturnsErrClosedWhenClosedOnEmptyDiscoveredSet(t *t
 		t.Fatalf("DiscoverNodesContext() error mismatch, want=%v, got=%v", ErrClosed, err)
 	}
 }
+
+// FuzzGetNodeURL fuzzes (*Client).getNodeURL. The target parses the
+// publish_address returned by Elasticsearch (`hostname/address:port` or
+// `address:port`, with IPv4, IPv6, or hostnames). The property is simply that
+// parsing must never panic and must always return a non-nil *url.URL for any
+// input, since the production caller assigns the result without nil-checking.
+func FuzzGetNodeURL(f *testing.F) {
+	seeds := []struct {
+		addr   string
+		scheme string
+	}{
+		{"127.0.0.1:9200", "http"},
+		{"localhost/127.0.0.1:9200", "http"},
+		{"es1.local/10.0.0.1:9200", "https"},
+		{"[::1]:9200", "http"},
+		{"[2001:db8::1]:9200", "https"},
+		{"host/[2001:db8::1]:9200", "https"},
+		{"[fe80::1%25eth0]:9200", "http"},
+		{"es-node1:9200", "http"},
+		{"", "http"},
+		{"/:", "http"},
+		{"weirdhost", "http"},
+		{"host/", "http"},
+		{"/addr:1", "http"},
+		{":", ""},
+	}
+	for _, s := range seeds {
+		f.Add(s.addr, s.scheme)
+	}
+
+	c := &Client{}
+	f.Fuzz(func(t *testing.T, addr, scheme string) {
+		node := nodeInfo{}
+		node.HTTP.PublishAddress = addr
+		u := c.getNodeURL(node, scheme)
+		if u == nil {
+			t.Fatalf("getNodeURL returned nil for addr=%q scheme=%q", addr, scheme)
+		}
+	})
+}
+
+// FuzzParseNodesInfo fuzzes the JSON decode path that getNodesInfo applies to
+// the response of /_nodes/http: a generic envelope into
+// map[string]json.RawMessage, then the "nodes" entry into map[string]nodeInfo.
+// The property is that the decode must never panic (errors are surfaced via
+// the return value) and that any nodeInfo produced can be passed through
+// getNodeURL without panicking.
+func FuzzParseNodesInfo(f *testing.F) {
+	for _, name := range []string{"testdata/nodes.info.json", "testdata/nodes.info.ipv6.json"} {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			f.Fatalf("read seed %s: %s", name, err)
+		}
+		f.Add(data)
+	}
+	// Minimal shapes that exercise edge cases in the envelope decode.
+	f.Add([]byte(`{}`))
+	f.Add([]byte(`{"nodes": null}`))
+	f.Add([]byte(`{"nodes": {}}`))
+	f.Add([]byte(`{"nodes": {"es1": {"http": {"publish_address": ""}}}}`))
+	f.Add([]byte(``))
+
+	c := &Client{}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var env map[string]json.RawMessage
+		if err := json.NewDecoder(bytes.NewReader(data)).Decode(&env); err != nil {
+			return
+		}
+		raw, ok := env["nodes"]
+		if !ok {
+			return
+		}
+		var nodes map[string]nodeInfo
+		if err := json.Unmarshal(raw, &nodes); err != nil {
+			return
+		}
+		for _, node := range nodes {
+			if u := c.getNodeURL(node, "http"); u == nil {
+				t.Fatalf("getNodeURL returned nil for publish_address=%q", node.HTTP.PublishAddress)
+			}
+		}
+	})
+}
