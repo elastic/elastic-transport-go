@@ -720,3 +720,43 @@ func TestDiscoverNodesContextReturnsErrClosedWhenClosedOnEmptyDiscoveredSet(t *t
 		t.Fatalf("DiscoverNodesContext() error mismatch, want=%v, got=%v", ErrClosed, err)
 	}
 }
+
+// FuzzGetNodeURL fuzzes (*Client).getNodeURL. The target parses the
+// publish_address returned by Elasticsearch (`hostname/address:port` or
+// `address:port`, with IPv4, IPv6, or hostnames). The property is simply that
+// parsing must never panic and must always return a non-nil *url.URL for any
+// input, since the production caller assigns the result without nil-checking.
+func FuzzGetNodeURL(f *testing.F) {
+	seeds := []struct {
+		addr   string
+		scheme string
+	}{
+		{"127.0.0.1:9200", "http"},
+		{"localhost/127.0.0.1:9200", "http"},
+		{"es1.local/10.0.0.1:9200", "https"},
+		{"[::1]:9200", "http"},
+		{"[2001:db8::1]:9200", "https"},
+		{"host/[2001:db8::1]:9200", "https"},
+		{"[fe80::1%25eth0]:9200", "http"},
+		{"es-node1:9200", "http"},
+		{"", "http"},
+		{"/:", "http"},
+		{"weirdhost", "http"},
+		{"host/", "http"},
+		{"/addr:1", "http"},
+		{":", ""},
+	}
+	for _, s := range seeds {
+		f.Add(s.addr, s.scheme)
+	}
+
+	c := &Client{}
+	f.Fuzz(func(t *testing.T, addr, scheme string) {
+		node := nodeInfo{}
+		node.HTTP.PublishAddress = addr
+		u := c.getNodeURL(node, scheme)
+		if u == nil {
+			t.Fatalf("getNodeURL returned nil for addr=%q scheme=%q", addr, scheme)
+		}
+	})
+}
