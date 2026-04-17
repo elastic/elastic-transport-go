@@ -203,26 +203,31 @@ func TestDiscovery(t *testing.T) {
 	})
 
 	t.Run("scheduleDiscoverNodes()", func(t *testing.T) {
-		t.Skip("Skip") // TODO(karmi): Investigate the intermittent failures of this test
-
-		var numURLs int
 		u, _ := url.Parse("http://" + srv.Addr)
 
 		tp, _ := New(Config{URLs: []*url.URL{u}, DiscoverNodesInterval: 10 * time.Millisecond})
+		defer func() { _ = tp.Close(context.Background()) }()
 
 		tp.poolMu.RLock()
-		numURLs = len(tp.pool.URLs())
+		numURLs := len(tp.pool.URLs())
 		tp.poolMu.RUnlock()
 		if numURLs != 1 {
-			t.Errorf("Unexpected number of nodes, want=1, got=%d", numURLs)
+			t.Errorf("Unexpected number of nodes before tick, want=1, got=%d", numURLs)
 		}
 
-		time.Sleep(18 * time.Millisecond) // Wait until (*Client).scheduleDiscoverNodes()
-		tp.poolMu.RLock()
-		numURLs = len(tp.pool.URLs())
-		tp.poolMu.RUnlock()
-		if numURLs != 2 {
-			t.Errorf("Unexpected number of nodes, want=2, got=%d", numURLs)
+		poolSize := func() int {
+			tp.poolMu.RLock()
+			defer tp.poolMu.RUnlock()
+			return len(tp.pool.URLs())
+		}
+
+		deadline := time.Now().Add(2 * time.Second)
+		for poolSize() != 2 {
+
+			if time.Now().After(deadline) {
+				t.Fatalf("scheduleDiscoverNodes did not update pool within 2s, final size=%d", poolSize())
+			}
+			time.Sleep(5 * time.Millisecond)
 		}
 	})
 
