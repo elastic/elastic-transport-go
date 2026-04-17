@@ -760,3 +760,46 @@ func FuzzGetNodeURL(f *testing.F) {
 		}
 	})
 }
+
+// FuzzParseNodesInfo fuzzes the JSON decode path that getNodesInfo applies to
+// the response of /_nodes/http: a generic envelope into
+// map[string]json.RawMessage, then the "nodes" entry into map[string]nodeInfo.
+// The property is that the decode must never panic (errors are surfaced via
+// the return value) and that any nodeInfo produced can be passed through
+// getNodeURL without panicking.
+func FuzzParseNodesInfo(f *testing.F) {
+	for _, name := range []string{"testdata/nodes.info.json", "testdata/nodes.info.ipv6.json"} {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			f.Fatalf("read seed %s: %s", name, err)
+		}
+		f.Add(data)
+	}
+	// Minimal shapes that exercise edge cases in the envelope decode.
+	f.Add([]byte(`{}`))
+	f.Add([]byte(`{"nodes": null}`))
+	f.Add([]byte(`{"nodes": {}}`))
+	f.Add([]byte(`{"nodes": {"es1": {"http": {"publish_address": ""}}}}`))
+	f.Add([]byte(``))
+
+	c := &Client{}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var env map[string]json.RawMessage
+		if err := json.NewDecoder(bytes.NewReader(data)).Decode(&env); err != nil {
+			return
+		}
+		raw, ok := env["nodes"]
+		if !ok {
+			return
+		}
+		var nodes map[string]nodeInfo
+		if err := json.Unmarshal(raw, &nodes); err != nil {
+			return
+		}
+		for _, node := range nodes {
+			if u := c.getNodeURL(node, "http"); u == nil {
+				t.Fatalf("getNodeURL returned nil for publish_address=%q", node.HTTP.PublishAddress)
+			}
+		}
+	})
+}
