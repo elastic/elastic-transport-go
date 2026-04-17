@@ -162,16 +162,35 @@ func (c *Client) getNodesInfo(ctx context.Context) ([]nodeInfo, error) {
 
 	pool := c.snapshotPool()
 	conn, poolErr := pool.Next()
-	if poolErr == nil {
-		return c.fetchNodesInfo(ctx, conn.URL, scheme)
+
+	var primaryErr error
+	if poolErr != nil {
+		primaryErr = fmt.Errorf("pool: %w", poolErr)
+	} else {
+		nodes, err := c.fetchNodesInfo(ctx, conn.URL, scheme)
+		if err == nil {
+			return nodes, nil
+		}
+		if onFailErr := pool.OnFailure(conn); onFailErr != nil && c.leveledLogger != nil {
+			c.leveledLogger.Warn(ctx, "discovery: pool.OnFailure error", "error", onFailErr)
+		}
+		primaryErr = fmt.Errorf("pool conn %s: %w", conn.URL.Redacted(), err)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("discovery: %w: %w", err, primaryErr)
 	}
 
 	if c.leveledLogger != nil {
-		c.leveledLogger.Debug(ctx, "discovery: pool exhausted, falling back to seed URLs", "error", poolErr)
+		c.leveledLogger.Debug(ctx, "discovery: primary attempt failed, falling back to seed URLs", "error", primaryErr)
 	}
 
-	errs := []error{fmt.Errorf("pool: %w", poolErr)}
+	errs := []error{primaryErr}
 	for _, u := range c.urls {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
 		nodes, err := c.fetchNodesInfo(ctx, u, scheme)
 		if err == nil {
 			if c.leveledLogger != nil {

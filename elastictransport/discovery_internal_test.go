@@ -831,6 +831,78 @@ func TestDiscoverNodesContextReturnsJoinedErrorWhenPoolAndSeedsFail(t *testing.T
 	}
 }
 
+func TestDiscoverNodesContextFallsBackToSeedURLsWhenPoolConnFails(t *testing.T) {
+	payload := []byte(`{
+		"nodes": {
+			"es1": {"roles": ["data"], "http": {"publish_address": "es1:9200"}}
+		}
+	}`)
+
+	deadNode, _ := url.Parse("http://deadnode:9200")
+	seed, _ := url.Parse("http://liveseed:9200")
+
+	var (
+		mu          sync.Mutex
+		visited     []string
+		onFailCount int
+	)
+
+	tp, _ := New(Config{
+		URLs: []*url.URL{seed},
+		Transport: &mockTransp{
+			RoundTripFunc: func(req *http.Request) (*http.Response, error) {
+				mu.Lock()
+				visited = append(visited, req.URL.Host)
+				mu.Unlock()
+
+				if req.URL.Host == deadNode.Host {
+					return nil, &mockNetError{error: errors.New("connection refused")}
+				}
+				return &http.Response{
+					Status:        "200 OK",
+					StatusCode:    200,
+					ContentLength: int64(len(payload)),
+					Header:        map[string][]string{"Content-Type": {"application/json"}},
+					Body:          io.NopCloser(bytes.NewReader(payload)),
+				}, nil
+			},
+		},
+	})
+
+	tp.poolMu.Lock()
+	tp.pool = &spyPool{conn: &Connection{URL: deadNode}, onFailure: func() { onFailCount++ }}
+	tp.poolMu.Unlock()
+
+	if err := tp.DiscoverNodesContext(context.Background()); err != nil {
+		t.Fatalf("DiscoverNodesContext() unexpected error: %s", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(visited) != 2 || visited[0] != deadNode.Host || visited[1] != seed.Host {
+		t.Fatalf("Expected visit order [%s, %s], got %v", deadNode.Host, seed.Host, visited)
+	}
+	if onFailCount != 1 {
+		t.Fatalf("Expected pool.OnFailure to be called exactly once, got %d", onFailCount)
+	}
+}
+
+// spyPool returns a single connection and records OnFailure calls.
+type spyPool struct {
+	conn      *Connection
+	onFailure func()
+}
+
+func (p *spyPool) Next() (*Connection, error) { return p.conn, nil }
+func (p *spyPool) OnSuccess(*Connection) error { return nil }
+func (p *spyPool) OnFailure(*Connection) error {
+	if p.onFailure != nil {
+		p.onFailure()
+	}
+	return nil
+}
+func (p *spyPool) URLs() []*url.URL { return []*url.URL{p.conn.URL} }
+
 // FuzzGetNodeURL fuzzes (*Client).getNodeURL. The target parses the
 // publish_address returned by Elasticsearch (`hostname/address:port` or
 // `address:port`, with IPv4, IPv6, or hostnames). The property is simply that
