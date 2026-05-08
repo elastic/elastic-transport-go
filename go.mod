@@ -2,7 +2,7 @@ module github.com/elastic/elastic-transport-go/v8
 
 go 1.21
 
-toolchain go1.25.9
+toolchain go1.25.10
 
 // OpenTelemetry is pinned to v1.29.x: v1.30+ raises the minimum Go version
 // above 1.21 (see go.mod `go` directive). Bump together with the Go minimum.
