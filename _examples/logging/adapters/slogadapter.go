@@ -15,8 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package version
-
-const Version = "8.11.1-SNAPSHOT"
-
-const Transport = Version
+// Package adapters provides LeveledLogger implementations for popular Go
+// logging libraries.
+//
+// Each adapter is a thin wrapper that translates the
+// [elastictransport.LeveledLogger] interface into the target library's API.
+// Copy the adapter you need into your project, or import this package directly.
+//
+// For log/slog, use [elastictransport.SlogLogger] from the main package — it
+// is the canonical adapter and requires no additional dependencies:
+//
+//	tp, _ := elastictransport.NewClient(
+//	    elastictransport.WithLeveledLogger(&elastictransport.SlogLogger{
+//	        Logger: slog.Default(),
+//	    }),
+//	)
+package adapters

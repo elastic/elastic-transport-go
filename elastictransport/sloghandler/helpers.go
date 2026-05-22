@@ -15,8 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package version
+package sloghandler
 
-const Version = "8.11.1-SNAPSHOT"
+import (
+	"log/slog"
+	"time"
+)
 
-const Transport = Version
+func intFromValue(v slog.Value) int {
+	switch val := v.Any().(type) {
+	case int:
+		return val
+	case int64:
+		return int(val)
+	default:
+		return 0
+	}
+}
+
+func durationFromValue(v slog.Value) time.Duration {
+	switch val := v.Any().(type) {
+	case time.Duration:
+		return val
+	case int64:
+		return time.Duration(val)
+	default:
+		return 0
+	}
+}

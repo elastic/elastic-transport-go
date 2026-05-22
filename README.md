@@ -116,7 +116,162 @@ transport, err := elastictransport.NewClient(
 )
 ```
 
-### Loggers
+### Leveled Logging
+
+`WithLeveledLogger` sets a structured, leveled logger for transport-internal
+events (connection management, node discovery). The `LeveledLogger` interface
+uses the same `(msg, keysAndValues...)` convention as `log/slog`:
+
+```go
+type LeveledLogger interface {
+    Debug(msg string, keysAndValues ...any)
+    Info(msg string, keysAndValues ...any)
+    Warn(msg string, keysAndValues ...any)
+    Error(msg string, keysAndValues ...any)
+}
+```
+
+Add `LoggingInterceptor` to also log request/response round-trips through the
+same logger. This is the recommended way to get full logging:
+
+```go
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithLeveledLogger(&elastictransport.SlogLogger{
+        Logger: slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+            Level: slog.LevelDebug,
+        })),
+    }),
+    elastictransport.WithInterceptors(
+        elastictransport.LoggingInterceptor(false, false),
+    ),
+)
+```
+
+Successful round-trips are logged at **Info** level; errors at **Error** level;
+connection-management events at **Debug**, **Warn**, or **Error** depending on
+severity.
+
+#### Body Logging
+
+`LoggingInterceptor` accepts two booleans to enable request and/or response
+body capture:
+
+```go
+elastictransport.WithInterceptors(
+    elastictransport.LoggingInterceptor(true, true), // request body, response body
+)
+```
+
+#### Built-in slog Handlers
+
+The `sloghandler` sub-package provides drop-in `slog.Handler` replacements
+for every deprecated logger:
+
+| Deprecated Logger | sloghandler Replacement            |
+| ----------------- | ---------------------------------- |
+| `TextLogger`      | `sloghandler.NewTextHandler(w)`    |
+| `ColorLogger`     | `sloghandler.NewColorHandler(w)`   |
+| `CurlLogger`      | `sloghandler.NewCurlHandler(w)`    |
+| `JSONLogger`      | `sloghandler.NewJSONECSHandler(w)` |
+
+```go
+import "github.com/elastic/elastic-transport-go/v8/elastictransport/sloghandler"
+
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithLeveledLogger(&elastictransport.SlogLogger{
+        Logger: slog.New(sloghandler.NewColorHandler(os.Stderr)),
+    }),
+    elastictransport.WithInterceptors(
+        elastictransport.LoggingInterceptor(false, false),
+    ),
+)
+```
+
+#### Custom Logger Implementations
+
+Ready-made adapters for zap, zerolog, logrus, and logr are in
+[`_examples/logging/adapters/`](./_examples/logging/adapters/).
+
+To use a different logging library, implement the four methods on a thin wrapper:
+
+```go
+type ZapLeveledLogger struct{ Logger *zap.SugaredLogger }
+
+func (l *ZapLeveledLogger) Debug(ctx context.Context, msg string, kv ...any) { l.Logger.Debugw(msg, kv...) }
+func (l *ZapLeveledLogger) Info(ctx context.Context, msg string, kv ...any)  { l.Logger.Infow(msg, kv...) }
+func (l *ZapLeveledLogger) Warn(ctx context.Context, msg string, kv ...any)  { l.Logger.Warnw(msg, kv...) }
+func (l *ZapLeveledLogger) Error(ctx context.Context, msg string, kv ...any) { l.Logger.Errorw(msg, kv...) }
+```
+
+#### Context Integration
+
+The logger is injected into the request context during `Perform`, making it
+available to custom interceptors via `LoggerFromContext`. Callers can override
+the logger per-request using `ContextWithLogger`:
+
+```go
+interceptor := func(next elastictransport.RoundTripFunc) elastictransport.RoundTripFunc {
+    return func(req *http.Request) (*http.Response, error) {
+        if logger := elastictransport.LoggerFromContext(req.Context()); logger != nil {
+            logger.Debug("before request", "method", req.Method)
+        }
+        return next(req)
+    }
+}
+```
+
+#### Migrating from WithDebugLogger / WithLogger
+
+`WithDebugLogger()` and `WithLogger()` still work but are deprecated. Under the
+hood `WithDebugLogger` now creates a `SlogLogger` wrapping `slog.Default()`.
+
+|                       | `WithDebugLogger()` | `WithLogger()`  | `WithLeveledLogger()` + `LoggingInterceptor` |
+| --------------------- | ------------------- | --------------- | -------------------------------------------- |
+| Round-trip logging    | No                  | Yes             | Yes (via interceptor)                        |
+| Connection events     | Yes (Debug only)    | No              | Yes                                          |
+| Output destination    | stdout              | User-controlled | User-controlled                              |
+| Log levels            | Debug only          | None            | Debug/Info/Warn/Error                        |
+| Structured data       | No                  | No              | Yes (key-value pairs)                        |
+| Custom logger support | No                  | Yes             | Yes                                          |
+| Per-client isolation  | Yes                 | Yes             | Yes                                          |
+| Context injection     | No                  | No              | Yes                                          |
+| Composable ordering   | No                  | No              | Yes (interceptor chain)                      |
+
+Replace either legacy option:
+
+```go
+// Before (WithDebugLogger)
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithDebugLogger(),
+)
+
+// Before (WithLogger)
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithLogger(&elastictransport.TextLogger{Output: os.Stdout}),
+)
+
+// After
+transport, err := elastictransport.NewClient(
+    elastictransport.WithURLs(u),
+    elastictransport.WithLeveledLogger(&elastictransport.SlogLogger{
+        Logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+            Level: slog.LevelDebug,
+        })),
+    }),
+    elastictransport.WithInterceptors(
+        elastictransport.LoggingInterceptor(false, false),
+    ),
+)
+```
+
+### Request/Response Loggers (Deprecated)
+
+> **Deprecated:** Use `WithLeveledLogger` instead. The loggers below remain
+> functional for backward compatibility.
 
 A logger can be provided via the `WithLogger` option. Several bundled loggers
 are available:

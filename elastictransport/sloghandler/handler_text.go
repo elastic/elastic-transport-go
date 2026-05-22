@@ -15,8 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package version
+package sloghandler
 
-const Version = "8.11.1-SNAPSHOT"
+import (
+	"io"
+	"log/slog"
+)
 
-const Transport = Version
+// NewTextHandler returns a [slog.Handler] that produces plain-text output
+// similar to the deprecated [elastictransport.TextLogger].
+//
+// Output format:
+//
+//	time=2024-01-15T10:30:00.000Z level=INFO msg=request method=GET url=http://localhost:9200/ status=200 duration=5ms
+func NewTextHandler(w io.Writer) slog.Handler {
+	return slog.NewTextHandler(w, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+}

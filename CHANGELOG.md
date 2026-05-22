@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.11.0](https://github.com/elastic/elastic-transport-go/compare/v8.10.0...v8.11.0) (2026-04-16)
+
+
+### Features
+
+* Add LeveledLogger interface for structured, leveled logging ([#85](https://github.com/elastic/elastic-transport-go/issues/85)) ([6218956](https://github.com/elastic/elastic-transport-go/commit/6218956d25ab36086c2d3e8c3dc3173b2f8fd7de))
+
 ## [8.10.0](https://github.com/elastic/elastic-transport-go/compare/v8.9.0...v8.10.0) (2026-03-18)
 
 

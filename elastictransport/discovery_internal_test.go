@@ -203,26 +203,31 @@ func TestDiscovery(t *testing.T) {
 	})
 
 	t.Run("scheduleDiscoverNodes()", func(t *testing.T) {
-		t.Skip("Skip") // TODO(karmi): Investigate the intermittent failures of this test
-
-		var numURLs int
 		u, _ := url.Parse("http://" + srv.Addr)
 
 		tp, _ := New(Config{URLs: []*url.URL{u}, DiscoverNodesInterval: 10 * time.Millisecond})
+		defer func() { _ = tp.Close(context.Background()) }()
 
 		tp.poolMu.RLock()
-		numURLs = len(tp.pool.URLs())
+		numURLs := len(tp.pool.URLs())
 		tp.poolMu.RUnlock()
 		if numURLs != 1 {
-			t.Errorf("Unexpected number of nodes, want=1, got=%d", numURLs)
+			t.Errorf("Unexpected number of nodes before tick, want=1, got=%d", numURLs)
 		}
 
-		time.Sleep(18 * time.Millisecond) // Wait until (*Client).scheduleDiscoverNodes()
-		tp.poolMu.RLock()
-		numURLs = len(tp.pool.URLs())
-		tp.poolMu.RUnlock()
-		if numURLs != 2 {
-			t.Errorf("Unexpected number of nodes, want=2, got=%d", numURLs)
+		poolSize := func() int {
+			tp.poolMu.RLock()
+			defer tp.poolMu.RUnlock()
+			return len(tp.pool.URLs())
+		}
+
+		deadline := time.Now().Add(2 * time.Second)
+		for poolSize() != 2 {
+
+			if time.Now().After(deadline) {
+				t.Fatalf("scheduleDiscoverNodes did not update pool within 2s, final size=%d", poolSize())
+			}
+			time.Sleep(5 * time.Millisecond)
 		}
 	})
 
@@ -719,4 +724,87 @@ func TestDiscoverNodesContextReturnsErrClosedWhenClosedOnEmptyDiscoveredSet(t *t
 	if !errors.Is(err, ErrClosed) {
 		t.Fatalf("DiscoverNodesContext() error mismatch, want=%v, got=%v", ErrClosed, err)
 	}
+}
+
+// FuzzGetNodeURL fuzzes (*Client).getNodeURL. The target parses the
+// publish_address returned by Elasticsearch (`hostname/address:port` or
+// `address:port`, with IPv4, IPv6, or hostnames). The property is simply that
+// parsing must never panic and must always return a non-nil *url.URL for any
+// input, since the production caller assigns the result without nil-checking.
+func FuzzGetNodeURL(f *testing.F) {
+	seeds := []struct {
+		addr   string
+		scheme string
+	}{
+		{"127.0.0.1:9200", "http"},
+		{"localhost/127.0.0.1:9200", "http"},
+		{"es1.local/10.0.0.1:9200", "https"},
+		{"[::1]:9200", "http"},
+		{"[2001:db8::1]:9200", "https"},
+		{"host/[2001:db8::1]:9200", "https"},
+		{"[fe80::1%25eth0]:9200", "http"},
+		{"es-node1:9200", "http"},
+		{"", "http"},
+		{"/:", "http"},
+		{"weirdhost", "http"},
+		{"host/", "http"},
+		{"/addr:1", "http"},
+		{":", ""},
+	}
+	for _, s := range seeds {
+		f.Add(s.addr, s.scheme)
+	}
+
+	c := &Client{}
+	f.Fuzz(func(t *testing.T, addr, scheme string) {
+		node := nodeInfo{}
+		node.HTTP.PublishAddress = addr
+		u := c.getNodeURL(node, scheme)
+		if u == nil {
+			t.Fatalf("getNodeURL returned nil for addr=%q scheme=%q", addr, scheme)
+		}
+	})
+}
+
+// FuzzParseNodesInfo fuzzes the JSON decode path that getNodesInfo applies to
+// the response of /_nodes/http: a generic envelope into
+// map[string]json.RawMessage, then the "nodes" entry into map[string]nodeInfo.
+// The property is that the decode must never panic (errors are surfaced via
+// the return value) and that any nodeInfo produced can be passed through
+// getNodeURL without panicking.
+func FuzzParseNodesInfo(f *testing.F) {
+	for _, name := range []string{"testdata/nodes.info.json", "testdata/nodes.info.ipv6.json"} {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			f.Fatalf("read seed %s: %s", name, err)
+		}
+		f.Add(data)
+	}
+	// Minimal shapes that exercise edge cases in the envelope decode.
+	f.Add([]byte(`{}`))
+	f.Add([]byte(`{"nodes": null}`))
+	f.Add([]byte(`{"nodes": {}}`))
+	f.Add([]byte(`{"nodes": {"es1": {"http": {"publish_address": ""}}}}`))
+	f.Add([]byte(``))
+
+	c := &Client{}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var env map[string]json.RawMessage
+		if err := json.NewDecoder(bytes.NewReader(data)).Decode(&env); err != nil {
+			return
+		}
+		raw, ok := env["nodes"]
+		if !ok {
+			return
+		}
+		var nodes map[string]nodeInfo
+		if err := json.Unmarshal(raw, &nodes); err != nil {
+			return
+		}
+		for _, node := range nodes {
+			if u := c.getNodeURL(node, "http"); u == nil {
+				t.Fatalf("getNodeURL returned nil for publish_address=%q", node.HTTP.PublishAddress)
+			}
+		}
+	})
 }
