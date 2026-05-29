@@ -12,4 +12,5 @@ jobs:
         uses: ytanikin/pr-conventional-commits@1.4.0
         with:
           task_types: '["feat","fix","docs","test","ci","refactor","perf","chore","revert"]'
-          add_label: "false"
+          add_label: "true"
+          custom_labels: '{"feat": "Category: Feature", "fix": "Category: Bug", "perf": "Category: Enhancement", "docs": "Area: Documentation", "test": "Category: Maintenance", "ci": "Category: Maintenance", "refactor": "Category: Maintenance", "chore": "Category: Maintenance", "revert": "Category: Maintenance"}'

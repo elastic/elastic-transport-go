@@ -57,6 +57,10 @@
   description: "New feature"
   color: "#5ba4cf"
 
+- name: "Category: Maintenance"
+  description: "Internal maintenance (tests, CI, refactor, chore, revert); excluded from release notes"
+  color: "#5ba4cf"
+
 - name: "Category: Not an issue"
   description: "This doesn't seem right"
   color: "#5ba4cf"
@@ -68,6 +72,14 @@
   color: "#5ba4cf"
   aliases:
     - "question"
+
+- name: "breaking change"
+  description: 'Introduces a breaking change (applied automatically from a "!" in the PR title)'
+  color: "#b60205"
+
+- name: "changelog:skip"
+  description: "Exclude this PR from generated release notes"
+  color: "#cfd3d7"
 
 - name: "good first issue"
   color: "#7057ff"
