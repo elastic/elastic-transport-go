@@ -70,11 +70,7 @@ pivot:
     # Subtypes help categorize breaking changes by their nature
     # Both labels and subtype values accept string or list form
     breaking-change:
-      # labels: ">breaking, >bc"
-      # Equivalent list form:
-      # labels:
-      #   - ">breaking"
-      #   - ">bc"
+      labels: "breaking change"
       # subtypes:
       #   api: ">api-breaking"
       #   behavioral: ">behavioral-breaking"
@@ -156,6 +152,11 @@ pivot:
 rules:
   # match: any
 
+  # Exclude maintenance PRs (auto-labeled Category: Maintenance) and any PR
+  # manually marked changelog:skip from generating a changelog entry.
+  create:
+    exclude: "changelog:skip, Category: Maintenance"
+
   # Create — controls which PRs generate changelogs.
   #   exclude: block PRs with these labels (string or list)
   #   include: only create changelogs for PRs with these labels (string or list)
@@ -218,7 +219,6 @@ rules:
   #   #       - "Search"
   #   #       - "Monitoring"
 
-
 # Bundle configuration (profiles and defaults)
 bundle:
   # Input directory containing changelog YAML files
@@ -243,7 +243,7 @@ bundle:
     - elastic/elasticsearch
     - elastic/roadmap
 
- # Named bundle profiles for different release scenarios.
+  # Named bundle profiles for different release scenarios.
   # Profiles can be used with both 'changelog bundle' and 'changelog remove':
   #   docs-builder changelog bundle elasticsearch-release 9.2.0
   #   docs-builder changelog remove elasticsearch-release 9.2.0
@@ -252,18 +252,18 @@ bundle:
   # bundle-specific and are ignored for removal.
   profiles:
     transport-go-release:
-    #   # Filter: which input changelogs to include ({version} and {lifecycle} are substituted at runtime)
-    #   products: "elasticsearch {version} {lifecycle}"
-    #   # Output filename ({version} is substituted at runtime)
+      #   # Filter: which input changelogs to include ({version} and {lifecycle} are substituted at runtime)
+      #   products: "elasticsearch {version} {lifecycle}"
+      #   # Output filename ({version} is substituted at runtime)
       output: "transport-go-{version}.yaml"
-    #   # Optional: override the products array written to the bundle output.
+      #   # Optional: override the products array written to the bundle output.
       output_products: "transport-go {version}"
     #   # Optional: profile-specific description (overrides bundle.description)
     #   # description: |
     #   #   Elasticsearch {version} includes:
     #   #   - Performance improvements
     #   #   - Bug fixes and stability enhancements
-    #   #   
+    #   #
     #   #   Download the release binaries: https://github.com/{owner}/{repo}/releases/tag/v{version}
     #   # Feature IDs to hide when bundling with this profile (accepts string or list)
     #   hide_features:
