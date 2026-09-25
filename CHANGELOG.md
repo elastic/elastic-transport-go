@@ -1,5 +1,12 @@
 # Changelog
 
+## [8.11.1](https://github.com/elastic/elastic-transport-go/compare/v8.11.0...v8.11.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* Add explicit permissions to GitHub Actions workflows ([#108](https://github.com/elastic/elastic-transport-go/issues/108)) ([d4defa7](https://github.com/elastic/elastic-transport-go/commit/d4defa7ff1d3a1f6eda044eac9e7e509f63a3c92))
+
 ## [8.11.0](https://github.com/elastic/elastic-transport-go/compare/v8.10.0...v8.11.0) (2026-04-16)
 
 
