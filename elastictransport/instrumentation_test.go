@@ -206,6 +206,93 @@ func TestElasticsearchOpenTelemetry_RecordClusterId(t *testing.T) {
 	}
 }
 
+func TestElasticsearchOpenTelemetry_RecordClusterName(t *testing.T) {
+	const cloudHeader = "X-Found-Handling-Cluster"
+	const onPremHeader = "Elastic-Cluster-Name"
+
+	testCases := []struct {
+		name    string
+		headers map[string][]string
+		// want is the expected db.elasticsearch.cluster.name attribute value.
+		// An empty string means the attribute must not be present.
+		want string
+	}{
+		{
+			name:    "Elastic Cloud header only",
+			headers: map[string][]string{cloudHeader: {"cloud-cluster"}},
+			want:    "cloud-cluster",
+		},
+		{
+			name:    "self-managed header only",
+			headers: map[string][]string{onPremHeader: {"onprem-cluster"}},
+			want:    "onprem-cluster",
+		},
+		{
+			name: "both present, Cloud takes precedence",
+			headers: map[string][]string{
+				cloudHeader:  {"cloud-cluster"},
+				onPremHeader: {"onprem-cluster"},
+			},
+			want: "cloud-cluster",
+		},
+		{
+			name: "empty Cloud header falls back to self-managed",
+			headers: map[string][]string{
+				cloudHeader:  {""},
+				onPremHeader: {"onprem-cluster"},
+			},
+			want: "onprem-cluster",
+		},
+		{
+			name:    "neither header present",
+			headers: map[string][]string{},
+			want:    "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			exporter, provider, instrument := NewTestOpenTelemetry()
+
+			ctx := instrument.Start(context.Background(), spanName)
+			instrument.AfterResponse(ctx, &http.Response{Header: tc.headers})
+			instrument.Close(ctx)
+			if err := provider.ForceFlush(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+
+			if len(exporter.GetSpans()) != 1 {
+				t.Fatalf("wrong number of spans recorded, got %v, want %v", len(exporter.GetSpans()), 1)
+			}
+
+			span := exporter.GetSpans()[0]
+
+			var got string
+			var found bool
+			for _, attr := range span.Attributes {
+				if attr.Key == attrDbElasticsearchClusterName {
+					got = attr.Value.AsString()
+					found = true
+				}
+			}
+
+			if tc.want == "" {
+				if found {
+					t.Errorf("expected no %v attribute, got %v", attrDbElasticsearchClusterName, got)
+				}
+				return
+			}
+
+			if !found {
+				t.Fatalf("expected %v attribute to be set to %v, but it was missing", attrDbElasticsearchClusterName, tc.want)
+			}
+			if got != tc.want {
+				t.Errorf("invalid %v, got %v, want %v", attrDbElasticsearchClusterName, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestElasticsearchOpenTelemetry_RecordNodeName(t *testing.T) {
 	exporter, provider, instrument := NewTestOpenTelemetry()
 

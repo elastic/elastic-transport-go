@@ -200,13 +200,19 @@ func (i ElasticsearchOpenTelemetry) AfterRequest(req *http.Request, system, endp
 	}
 }
 
-// AfterResponse enric the span with the cluster id and node name if the query was executed on Elastic Cloud.
+// AfterResponse enrich the span with the cluster id and node name if the query was executed on Elastic Cloud.
 func (i ElasticsearchOpenTelemetry) AfterResponse(ctx context.Context, res *http.Response) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
-		if id := res.Header.Get("X-Found-Handling-Cluster"); id != "" {
+		// Elastic Cloud sends X-Found-Handling-Cluster; self-managed sends Elastic-Cluster-Name when enabled.
+		// If both are present, the Cloud header takes precedence.
+		clusterName := res.Header.Get("X-Found-Handling-Cluster")
+		if clusterName == "" {
+			clusterName = res.Header.Get("Elastic-Cluster-Name")
+		}
+		if clusterName != "" {
 			span.SetAttributes(
-				attribute.String(attrDbElasticsearchClusterName, id),
+				attribute.String(attrDbElasticsearchClusterName, clusterName),
 			)
 		}
 		if name := res.Header.Get("X-Found-Handling-Instance"); name != "" {
